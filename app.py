@@ -12,17 +12,17 @@ import os
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 端口配置
 PORT = int(os.environ.get("PORT", 8080))
-API_SECRET_KEY = "captain_8888"
 SYNC_INTERVAL = 5
+# 🌟 防盗暗号
+API_SECRET_KEY = "captain_8888"
 
 URLS = {
     "btc28": "https://kjsix28.com/portal/btc28",
     "fenfen28": "http://www.qilin28.com/index?type=3",
     "JND": "http://www.qilin28.com/"
 }
-CN_NAME_MAP = {"btc28": "比特", "fenfen28": "分分", "JND": "加拿大"}
+CN_NAME_MAP = {"btc28": "比特28", "fenfen28": "分分28", "JND": "加拿大28"}
 PERIODS = {"btc28": 60, "fenfen28": 60, "JND": 210}
 
 GAME_DATA = {
@@ -91,11 +91,9 @@ def fetch_data(game_key):
                 
                 if is_new:
                     LAST_ISSUE[game_key] = current_issue
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] SUCCESS {CN_NAME_MAP[game_key]}: {current_issue}", flush=True)
                 return True
             return False
-    except Exception as e:
-        print(f"ERROR {CN_NAME_MAP[game_key]}: {str(e)[:40]}", flush=True)
+    except Exception:
         return False
 
 executor = ThreadPoolExecutor(max_workers=3)
@@ -111,37 +109,36 @@ def sync_all_worker():
 
 class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-    try:
-        if self.path == '/' or self.path == '/index.html':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
-            self.end_headers()
-            self.wfile.write(HTML_PAGE.encode('utf-8'))
-            
-        elif self.path.startswith('/api/'):
-            if f"key={API_SECRET_KEY}" not in self.path:
-                self.send_error(401, "Unauthorized")
-                return
-                
-            game_key = self.path.replace('/api/', '').split('?')[0]
-            
-            if game_key in GAME_DATA:
+        try:
+            if self.path == '/' or self.path == '/index.html':
                 self.send_response(200)
-                self.send_header('Content-type', 'application/json; charset=utf-8')
-                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-type', 'text/html; charset=utf-8')
                 self.end_headers()
+                self.wfile.write(HTML_PAGE.encode('utf-8'))
                 
-                with DATA_LOCK:
-                    gd = GAME_DATA[game_key]
-                    response_data = {"status": "success", "next_draw_ts": gd["next_ts"], "last_sync_ts": gd["last_sync"], "sync_interval": SYNC_INTERVAL, "data": gd["draws"]}
-                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+            elif self.path.startswith('/api/'):
+                # 防盗拦截
+                if f"key={API_SECRET_KEY}" not in self.path:
+                    self.send_error(401, "Unauthorized: 请输入正确的暗号")
+                    return
+                
+                game_key = self.path.replace('/api/', '').split('?')[0]
+                
+                if game_key in GAME_DATA:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json; charset=utf-8')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    
+                    with DATA_LOCK:
+                        gd = GAME_DATA[game_key]
+                        response_data = {"status": "success", "next_draw_ts": gd["next_ts"], "last_sync_ts": gd["last_sync"], "sync_interval": SYNC_INTERVAL, "data": gd["draws"]}
+                    self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+                else:
+                    self.send_error(404, "API Not Found")
             else:
-                self.send_error(404, "API Not Found")
-        else:
-            self.send_error(404, "Not Found")
-    except (BrokenPipeError, ConnectionResetError): pass
-
-    
+                self.send_error(404, "Not Found")
+        except (BrokenPipeError, ConnectionResetError): pass
 
     def log_message(self, format, *args): pass
 
@@ -151,7 +148,7 @@ HTML_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Capital Web</title>
+    <title>舰长开奖网站</title>
     <style>
         :root {
             --neon-cyan: #00f3ff; --neon-green: #39ff14; --neon-red: #ff003c; --neon-blue: #007bff;
@@ -212,22 +209,22 @@ HTML_PAGE = """
 </head>
 <body>
     <div class="header">
-        <h1 class="main-title">⚡ CAPTAIN WEB ⚡</h1>
+        <h1 class="main-title">⚡ 舰长开奖网站 ⚡</h1>
         <div class="tabs">
-            <button id="btn-btc28" class="tab-btn active" onclick="switchGame('btc28')">BTC 28</button>
-            <button id="btn-fenfen28" class="tab-btn" onclick="switchGame('fenfen28')">FENFEN 28</button>
-            <button id="btn-JND" class="tab-btn" onclick="switchGame('JND')">CANADA 28</button>
+            <button id="btn-btc28" class="tab-btn active" onclick="switchGame('btc28')">舰长比特28</button>
+            <button id="btn-fenfen28" class="tab-btn" onclick="switchGame('fenfen28')">舰长分分28</button>
+            <button id="btn-JND" class="tab-btn" onclick="switchGame('JND')">舰长加拿大28</button>
         </div>
         <div class="status-bar">
-            <div class="status-item">SYNC: <span id="sync-count">-</span>s</div>
-            <div class="status-item">COUNTDOWN: <span id="draw-count">--:--</span></div>
+            <div class="status-item">网络同步: <span id="sync-count">-</span>s</div>
+            <div class="status-item">开奖倒计时: <span id="draw-count">--:--</span></div>
         </div>
     </div>
     
     <div class="table-container">
         <table>
-            <thead><tr><th>Issue</th><th>Time</th><th>Result</th><th>Type</th></tr></thead>
-            <tbody id="table-body"><tr><td colspan="4" class="loading-text">Loading Data...</td></tr></tbody>
+            <thead><tr><th>期号</th><th>时间</th><th>结果</th><th>属性</th></tr></thead>
+            <tbody id="table-body"><tr><td colspan="4" class="loading-text">正在建立数据链路...</td></tr></tbody>
         </table>
     </div>
 
@@ -246,7 +243,7 @@ HTML_PAGE = """
             const elDraw = document.getElementById('draw-count');
             elDraw.innerText = "--:--"; elDraw.classList.remove('waiting');
             document.getElementById('sync-count').innerText = "-";
-            document.getElementById('table-body').innerHTML = '<tr><td colspan="4" class="loading-text">Switching...</td></tr>';
+            document.getElementById('table-body').innerHTML = '<tr><td colspan="4" class="loading-text">正在切换数据源...</td></tr>';
             
             if (pollTimer) clearTimeout(pollTimer);
             if (fastRetryTimer) clearTimeout(fastRetryTimer);
@@ -266,7 +263,8 @@ HTML_PAGE = """
             if (pollTimer) clearTimeout(pollTimer);
             if (fastRetryTimer) clearTimeout(fastRetryTimer);
             try {
-                const response = await fetch(\/api/${currentGame}?key=captain_8888`);`
+                // 网页端自带密码访问
+                const response = await fetch(`/api/${currentGame}?key=captain_8888`);
                 const res = await response.json();
                 if (res.status === "success") {
                     if (res.next_draw_ts > 0) {
@@ -281,7 +279,7 @@ HTML_PAGE = """
                             pollTimer = setTimeout(fetchData, syncInterval * 1000);
                         }
                     } else {
-                        document.getElementById('table-body').innerHTML = '<tr><td colspan="4" class="loading-text">Retrying...</td></tr>';
+                        document.getElementById('table-body').innerHTML = '<tr><td colspan="4" class="loading-text">网络拥挤，极速重试中...</td></tr>';
                         fastRetryTimer = setTimeout(fetchData, 1000);
                     }
                 }
@@ -312,7 +310,7 @@ HTML_PAGE = """
             const now = Date.now() / 1000, s = state[currentGame], elDraw = document.getElementById('draw-count');
             if (s.nextTs > 0) {
                 let drawLeft = Math.floor(s.nextTs - now);
-                if (drawLeft <= 0) { elDraw.innerText = "WAITING"; elDraw.classList.add('waiting'); }
+                if (drawLeft <= 0) { elDraw.innerText = "等待开奖"; elDraw.classList.add('waiting'); }
                 else { elDraw.innerText = formatCountdown(drawLeft); elDraw.classList.remove('waiting'); }
             }
             if (s.lastSync > 0) {
@@ -329,7 +327,7 @@ HTML_PAGE = """
 
 if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
-    print(f"Server started on port: {PORT}")
+    print(f"✅ 服务端已启动，端口: {PORT}")
     
     server = ThreadingHTTPServer(('0.0.0.0', PORT), RequestHandler)
     server.serve_forever()
