@@ -9,7 +9,6 @@ import hashlib
 import secrets
 import threading
 import urllib3
-from string import Template
 from collections import defaultdict
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,7 +22,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================= 配置区域 =================
 PORT = int(os.environ.get("PORT", 8080))
-SYNC_INTERVAL = 2  # 后端每2秒抓取一次源站
+SYNC_INTERVAL = 2  
 API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "captain_8888_super_secret_key_2024")
 
 URLS = {
@@ -56,8 +55,6 @@ class SecurityGuard:
         self.ip_records = defaultdict(list)
         self.banned_ips = {}
         self.lock = threading.Lock()
-        
-        # 0.5秒内最多10次，防止多标签页或狂刷新被误伤
         self.MAX_REQUESTS = 10       
         self.WINDOW = 0.5           
         self.BAN_TIME = 1800        
@@ -147,49 +144,47 @@ def sync_all_worker():
         for f in futures: f.result()
         time.sleep(max(0.1, SYNC_INTERVAL - (time.time() - start_time)))
 
-# ================= 页面模板 (精准时间校准版) =================
-PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
+# ================= HTML 页面生成 =================
+def build_html(client_key, encrypted_payload, nonce):
+    # 避免使用 string.Template，直接返回纯正 HTML 防止 JS 解析出错
+    return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>舰长开奖网站</title>
-    <style nonce="$nonce">
-        body { background: #0a0a0c; color: #e0e0e0; font-family: monospace; padding: 15px; margin: 0; }
+    <style nonce="{nonce}">
+        body {{ background: #0a0a0c; color: #e0e0e0; font-family: monospace; padding: 15px; margin: 0; }}
+        .header {{ position: relative; text-align: center; border: 1px solid #00f3ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
+        .title {{ color: #00f3ff; font-size: 24px; margin: 0 0 10px 0; }}
+        .countdown {{ color: #00ff9d; font-size: 20px; margin-top: 8px; font-weight: bold; }}
         
-        /* 头部区域改为相对定位，方便放右上角提示 */
-        .header { position: relative; text-align: center; border: 1px solid #00f3ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        .title { color: #00f3ff; font-size: 24px; margin: 0 0 10px 0; }
-        .countdown { color: #00ff9d; font-size: 20px; margin-top: 8px; font-weight: bold; }
-        
-        /* ★ 红框处的同步提示标签 */
-        .sync-badge { 
+        .sync-badge {{ 
             position: absolute; right: 10px; top: 10px;
             font-size: 12px; color: #00f3ff; 
             background: rgba(0, 243, 255, 0.1); 
             padding: 4px 8px; border-radius: 4px; border: 1px solid #00f3ff;
             opacity: 0; transition: opacity 0.3s; pointer-events: none;
-        }
-        .sync-badge.show { opacity: 1; }
+        }}
+        .sync-badge.show {{ opacity: 1; }}
 
-        .tabs { display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; }
-        .tab-btn { background: #1a1a1a; color: #888; border: 1px solid #333; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 16px; transition: all 0.3s; }
-        .tab-btn.active { background: #00f3ff; color: #000; border-color: #00f3ff; font-weight: bold; box-shadow: 0 0 10px rgba(0,243,255,0.5); }
+        .tabs {{ display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; }}
+        .tab-btn {{ background: #1a1a1a; color: #888; border: 1px solid #333; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 16px; transition: all 0.3s; }}
+        .tab-btn.active {{ background: #00f3ff; color: #000; border-color: #00f3ff; font-weight: bold; box-shadow: 0 0 10px rgba(0,243,255,0.5); }}
         
-        table { width: 100%; border-collapse: collapse; text-align: center; }
-        th { color: #00f3ff; padding: 10px; border-bottom: 1px solid #333; }
-        td { padding: 10px; border-bottom: 1px solid #222; }
-        .result { color: #00f3ff; font-weight: bold; }
-        .big { color: #ff003c; font-weight: bold; }
-        .small { color: #007bff; font-weight: bold; }
+        table {{ width: 100%; border-collapse: collapse; text-align: center; }}
+        th {{ color: #00f3ff; padding: 10px; border-bottom: 1px solid #333; }}
+        td {{ padding: 10px; border-bottom: 1px solid #222; }}
+        .result {{ color: #00f3ff; font-weight: bold; }}
+        .big {{ color: #ff003c; font-weight: bold; }}
+        .small {{ color: #007bff; font-weight: bold; }}
     </style>
 </head>
 <body>
     <div class="header">
         <h1 class="title">⚡ 舰长开奖网站 ⚡</h1>
         <div class="countdown">下一期开奖倒计时：<span id="cd">--</span> 秒</div>
-        <!-- ★ 右上角提示框 -->
-        <div id="sync-badge" class="sync-badge">🔄 同步中...</div>
+        <div id="sync-badge" class="sync-badge">🔄 请求上游中...</div>
     </div>
     
     <div class="tabs">
@@ -202,48 +197,46 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
         <tbody id="tbody"><tr><td colspan="4">解密加载中...</td></tr></tbody>
     </table>
     
-    <div id="vault" data-payload="$encrypted_payload" style="display:none"></div>
+    <div id="vault" data-payload="{encrypted_payload}" style="display:none"></div>
 
-    <script nonce="$nonce">
-    (function() {
+    <script nonce="{nonce}">
+    (function() {{
         'use strict';
-        const SECRET_KEY = "$client_key";
+        const SECRET_KEY = "{client_key}";
         
-        function xorDecrypt(b64Data) {
+        function xorDecrypt(b64Data) {{
             const str = atob(b64Data);
             let result = '';
-            for (let i = 0; i < str.length; i++) {
+            for (let i = 0; i < str.length; i++) {{
                 result += String.fromCharCode(str.charCodeAt(i) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length));
-            }
-            try { return decodeURIComponent(escape(result)); } 
-            catch(e) { return result; }
-        }
+            }}
+            try {{ return decodeURIComponent(escape(result)); }} 
+            catch(e) {{ return result; }}
+        }}
 
         const vault = document.getElementById('vault');
-        let allData = {};
-        let timeOffset = 0; // ★ 核心：前端与服务器的时间差
+        let allData = {{}};
+        let timeOffset = 0; 
         let currentGame = 'btc28';
         const cdText = document.getElementById('cd');
         const tbody = document.getElementById('tbody');
         const btns = document.querySelectorAll('.tab-btn');
         const badge = document.getElementById('sync-badge');
 
-        // 解析初始数据
-        try {
+        try {{
             const dataObj = JSON.parse(xorDecrypt(vault.getAttribute('data-payload')));
             allData = dataObj.games;
-            // 记录本地时间和服务器时间的差值（秒）
             timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
-        } catch(e) { console.error("初始数据解密失败"); }
+        }} catch(e) {{ console.error("初始解密失败", e); }}
 
-        function renderTable(gameKey) {
+        function renderTable(gameKey) {{
             const game = allData[gameKey];
-            if (!game || !game.draws || game.draws.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="color:#ff003c;">暂无数据 / 抓取失败</td></tr>';
+            if (!game || !game.draws || game.draws.length === 0) {{
+                tbody.innerHTML = '<tr><td colspan="4" style="color:#ff003c;">暂无数据</td></tr>';
                 return;
-            }
+            }}
             const frag = document.createDocumentFragment();
-            game.draws.forEach(r => {
+            game.draws.forEach(r => {{
                 const tr = document.createElement('tr');
                 const td1 = document.createElement('td'); td1.textContent = r.issue;
                 const td2 = document.createElement('td'); td2.textContent = r.time;
@@ -253,80 +246,66 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
                 td4.textContent = r.type;
                 tr.append(td1, td2, td3, td4);
                 frag.appendChild(tr);
-            });
+            }});
             tbody.innerHTML = '';
             tbody.appendChild(frag);
-        }
+        }}
 
-        // ★ 倒计时核心：利用服务器发来的 next_ts 和本地时间差，完美消除本地时钟误差
-        function tick() {
+        function tick() {{
             if (!allData[currentGame]) return;
-            
             const nextTs = allData[currentGame].next_ts;
-            // 当前真实的服务器时间
             const nowServer = Math.floor(Date.now() / 1000) - timeOffset;
-            
             let remain = Math.ceil(nextTs - nowServer);
             if (remain < 0) remain = 0;
             cdText.textContent = remain;
-        }
+        }}
         setInterval(tick, 1000);
 
-        // ★ 每 5 秒同步请求上游数据并刷新画面
-        async function syncData() {
-            // 显示提示
-            badge.textContent = '🔄 请求上游中...';
+        async function syncData() {{
             badge.classList.add('show');
-
-            try {
-                // 加时间戳防止 CDN/浏览器缓存
-                const res = await fetch('/_sync?_t=' + Date.now(), {
+            try {{
+                const res = await fetch('/_sync?_t=' + Date.now(), {{
                     cache: 'no-store',
-                    headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-                });
+                    headers: {{ 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }}
+                }});
                 if (!res.ok) throw new Error();
                 
                 const json = await res.json();
                 const dataObj = JSON.parse(xorDecrypt(json.payload));
                 
-                // 覆盖最新数据
                 allData = dataObj.games;
-                // 同步刷新时间差（每次同步都会把本地误差清零，强制校准）
                 timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
                 
                 renderTable(currentGame);
-                tick(); // 立即刷新一次显示
-
-                // 提示成功并延时隐藏
+                tick(); 
+                
                 badge.textContent = '✅ 已更新';
                 setTimeout(() => badge.classList.remove('show'), 1000);
-            } catch(e) { 
+            }} catch(e) {{ 
                 badge.textContent = '❌ 同步失败';
                 setTimeout(() => badge.classList.remove('show'), 2000);
-            }
-        }
+            }}
+        }}
         
-        // 强制每 5 秒触发一次
         setInterval(syncData, 5000); 
 
-        btns.forEach(btn => {
-            btn.addEventListener('click', () => {
+        btns.forEach(btn => {{
+            btn.addEventListener('click', () => {{
                 btns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentGame = btn.getAttribute('data-game');
                 renderTable(currentGame);
-                tick(); // 切换后立即刷新倒计时
-            });
-        });
+                tick(); 
+            }});
+        }});
 
-        // 初始渲染
         renderTable(currentGame);
         tick();
-    })();
+    }})();
     </script>
 </body>
 </html>
-""")
+"""
 
 # ================= HTTP 处理 =================
 class RequestHandler(BaseHTTPRequestHandler):
@@ -391,11 +370,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 encrypted_payload = x_xor(json_str, client_key)
                 nonce = secrets.token_urlsafe(16)
 
-                html = PAGE_TEMPLATE.substitute(
-                    encrypted_payload=encrypted_payload, 
-                    nonce=nonce, 
-                    client_key=client_key
-                )
+                html = build_html(client_key, encrypted_payload, nonce)
                 body = html.encode('utf-8')
 
                 self.send_response(200)
@@ -434,7 +409,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
-                # 彻底断绝浏览器 CDN 缓存
                 self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
                 self.send_header('Pragma', 'no-cache')
                 self.send_header('Expires', '0')
@@ -493,7 +467,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 完美时间校准 + 5秒强同步已开启")
+    print(f"[INFO] 最终修复版，精确5秒强同步校准开启")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
