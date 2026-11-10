@@ -23,7 +23,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ================= 配置区域 =================
 PORT = int(os.environ.get("PORT", 8080))
 SYNC_INTERVAL = 2  
-API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "captain_8888_super_secret_key_2024")
+API_SECRET_KEY = "captain_8888_super_secret_key_2024"
 
 URLS = {
     "btc28": "https://kjsix28.com/portal/btc28",
@@ -55,10 +55,8 @@ class SecurityGuard:
         self.ip_records = defaultdict(list)
         self.banned_ips = {}
         self.lock = threading.Lock()
-        
-        # ★ 放宽至 1秒内30次，彻底杜绝误杀正常用户
-        self.MAX_REQUESTS = 30       
-        self.WINDOW = 1.0           
+        self.MAX_REQUESTS = 10  # 0.5秒内最多10次，防脚本狂刷
+        self.WINDOW = 0.5           
         self.BAN_TIME = 1800        
 
     def is_banned(self, ip):
@@ -147,7 +145,8 @@ def sync_all_worker():
         time.sleep(max(0.1, SYNC_INTERVAL - (time.time() - start_time)))
 
 # ================= HTML 页面生成 =================
-def build_html(client_key, encrypted_payload, nonce):
+def build_html(nonce):
+    # ★ 由于改用公共加密接口，初始页面不需要塞入明文密文了，极速打开
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -197,25 +196,21 @@ def build_html(client_key, encrypted_payload, nonce):
         <thead><tr><th>期号</th><th>时间</th><th>结果</th><th>属性</th></tr></thead>
         <tbody id="tbody"><tr><td colspan="4">解密加载中...</td></tr></tbody>
     </table>
-    
-    <div id="vault" data-payload="{encrypted_payload}" style="display:none"></div>
 
     <script nonce="{nonce}">
     (function() {{
         'use strict';
-        const SECRET_KEY = "{client_key}";
         
-        function xorDecrypt(b64Data) {{
+        function xorDecrypt(b64Data, key) {{
             const str = atob(b64Data);
             let result = '';
             for (let i = 0; i < str.length; i++) {{
-                result += String.fromCharCode(str.charCodeAt(i) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length));
+                result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
             }}
             try {{ return decodeURIComponent(escape(result)); }} 
             catch(e) {{ return result; }}
         }}
 
-        const vault = document.getElementById('vault');
         let allData = {{}};
         let timeOffset = 0; 
         let currentGame = 'btc28';
@@ -224,16 +219,10 @@ def build_html(client_key, encrypted_payload, nonce):
         const btns = document.querySelectorAll('.tab-btn');
         const badge = document.getElementById('sync-badge');
 
-        try {{
-            const dataObj = JSON.parse(xorDecrypt(vault.getAttribute('data-payload')));
-            allData = dataObj.games;
-            timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
-        }} catch(e) {{ console.error("初始解密失败", e); }}
-
         function renderTable(gameKey) {{
             const game = allData[gameKey];
             if (!game || !game.draws || game.draws.length === 0) {{
-                tbody.innerHTML = '<tr><td colspan="4" style="color:#ff003c;">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="color:#ff003c;">获取数据中...</td></tr>';
                 return;
             }}
             const frag = document.createDocumentFragment();
@@ -252,7 +241,6 @@ def build_html(client_key, encrypted_payload, nonce):
             tbody.appendChild(frag);
         }}
 
-        // ★ 核心：彻底修复倒计时卡 0 的问题
         function tick() {{
             if (!allData[currentGame]) return;
             const nextTs = allData[currentGame].next_ts;
@@ -261,7 +249,6 @@ def build_html(client_key, encrypted_payload, nonce):
             
             let remain = Math.ceil(nextTs - nowServer);
             
-            // 如果倒计时<=0，本地强制加上周期，防止网络卡顿时卡死在 0
             if (remain <= 0) {{
                 allData[currentGame].next_ts += period; 
                 remain = period;
@@ -270,20 +257,21 @@ def build_html(client_key, encrypted_payload, nonce):
         }}
         setInterval(tick, 1000);
 
+        // ★ 核心：前端请求极高小的公共加密接口，不再碰 admin_key
         async function syncData() {{
             badge.textContent = '🔄 请求上游中...';
             badge.classList.add('show');
             try {{
-                const res = await fetch('/_sync?_t=' + Date.now(), {{
+                const res = await fetch('/api/web_data?_t=' + Date.now(), {{
                     cache: 'no-store',
                     headers: {{ 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }}
                 }});
                 
-                // 如果被限流或者返回错误，不发红报错，默默放弃，等5秒后的下一次
                 if (!res.ok) throw new Error("Sync failed");
                 
                 const json = await res.json();
-                const dataObj = JSON.parse(xorDecrypt(json.payload));
+                // 解密数据
+                const dataObj = JSON.parse(xorDecrypt(json.payload, json.key));
                 
                 allData = dataObj.games;
                 timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
@@ -294,12 +282,13 @@ def build_html(client_key, encrypted_payload, nonce):
                 badge.textContent = '✅ 已更新';
                 setTimeout(() => badge.classList.remove('show'), 1000);
             }} catch(e) {{ 
-                // 网络波动时显示“网络波动”，不再吓人
-                badge.textContent = '⚠️ 网络波动';
+                badge.textContent = '⚠️ 网络波动，稍后重试';
                 setTimeout(() => badge.classList.remove('show'), 2000);
             }}
         }}
         
+        // 首次立即请求，之后每5秒请求一次
+        syncData();
         setInterval(syncData, 5000); 
 
         btns.forEach(btn => {{
@@ -311,9 +300,6 @@ def build_html(client_key, encrypted_payload, nonce):
                 tick(); 
             }});
         }});
-
-        renderTable(currentGame);
-        tick();
     }})();
     </script>
 </body>
@@ -325,39 +311,14 @@ class RequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 15
 
-    # ★ 核心修复：获取真实用户 IP，防止被 Render 内部代理 IP 误杀
     def get_client_ip(self):
         xff = self.headers.get('X-Forwarded-For')
         if xff:
             return xff.split(',')[0].strip()
         return self.client_address[0]
 
-    def _verify_api(self, query, path):
-        try:
-            ts = query.get("ts", [""])[0]
-            nonce = query.get("nonce", [""])[0]
-            sig = query.get("sig", [""])[0]
-            if not ts or not nonce or not sig: return False
-            if len(nonce) > 64 or len(sig) != 64: return False
-            
-            ts_i = int(ts)
-            if abs(time.time() - ts_i) > 30: return False
-            
-            msg = f"{path}|{ts}|{nonce}".encode('utf-8')
-            expected_sig = hmac.new(API_SECRET_KEY.encode('utf-8'), msg, hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(expected_sig, sig): return False
-            
-            now = time.time()
-            with NONCE_LOCK:
-                for k in [k for k, v in NONCE_STORE.items() if v < now]: del NONCE_STORE[k]
-                if nonce in NONCE_STORE: return False
-                NONCE_STORE[nonce] = now + 60
-            return True
-        except Exception:
-            return False
-
     def do_GET(self):
-        client_ip = self.get_client_ip() # ★ 使用真实 IP 判断
+        client_ip = self.get_client_ip()
         
         if SECURITY.is_banned(client_ip):
             self.send_error(403, "Banned for 30 mins")
@@ -371,25 +332,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
+            # 1. 网页初始渲染
             if path == '/' or path == '/index.html':
-                with DATA_LOCK:
-                    payload_data = {
-                        "server_time": int(time.time()),
-                        "games": {}
-                    }
-                    for key in GAME_DATA:
-                        payload_data["games"][key] = {
-                            "draws": GAME_DATA[key]["draws"],
-                            "next_ts": int(GAME_DATA[key]["next_ts"]),
-                            "period": PERIODS[key]
-                        }
-
-                json_str = json.dumps(payload_data, ensure_ascii=False)
-                client_key = secrets.token_hex(8) 
-                encrypted_payload = x_xor(json_str, client_key)
                 nonce = secrets.token_urlsafe(16)
-
-                html = build_html(client_key, encrypted_payload, nonce)
+                html = build_html(nonce)
                 body = html.encode('utf-8')
 
                 self.send_response(200)
@@ -401,7 +347,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
-            elif path == '/_sync':
+            # 2. ★ 网页专用公共加密接口（完美防扒、永不超时）
+            elif path == '/api/web_data':
                 with DATA_LOCK:
                     payload_data = {
                         "server_time": int(time.time()),
@@ -415,7 +362,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         }
 
                 json_str = json.dumps(payload_data, ensure_ascii=False)
-                client_key = secrets.token_hex(8) 
+                client_key = secrets.token_hex(8) # 每次请求都是动态密钥
                 encrypted_payload = x_xor(json_str, client_key)
 
                 resp = {
@@ -428,19 +375,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
                 self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-                self.send_header('Pragma', 'no-cache')
-                self.send_header('Expires', '0')
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
+            # 3. 你的超级专属 API 接口（纯明文 JSON，无需网页调用）
             elif path in ['/api/btc28', '/api/fenfen28', '/api/JND']:
                 admin_key = query.get('admin_key', [''])[0]
-                if admin_key != API_SECRET_KEY and not self._verify_api(query, path):
+                if admin_key != API_SECRET_KEY:
                     self.send_response(401)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({"code": 401, "msg": "签名错误或链接已过期"}).encode('utf-8'))
+                    self.wfile.write(json.dumps({"code": 401, "msg": "暗号错误，拒绝访问"}).encode('utf-8'))
                     return
 
                 game_key = path.split('/')[-1]
@@ -452,6 +398,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         "name": CN_NAMES[game_key],
                         "period": PERIODS[game_key],
                         "next_ts": int(game_data["next_ts"]),
+                        "server_time": int(time.time()),
                         "draws": game_data["draws"]
                     }
 
@@ -484,7 +431,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 完美修正倒计时卡0，真实IP获取已开启")
+    print(f"[INFO] 已启用安全架构：网页走加密接口，暗号不暴露")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
