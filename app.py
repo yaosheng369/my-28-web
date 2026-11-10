@@ -25,8 +25,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 PORT = int(os.environ.get("PORT", 8080))
 SYNC_INTERVAL = 5
 
-# ★ 你的核心超级密钥（既是签名密钥，也是站长永久后门暗号）
-# 强烈建议在 Render 的 Environment 里设置，不要写在代码里。
+# ★ 你的核心超级密钥（站长后门 + 签名密钥）
 API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "captain_8888_super_secret_key_2024")
 
 URLS = {
@@ -91,7 +90,7 @@ class SecurityGuard:
 SECURITY = SecurityGuard()
 
 def x_xor(data: str, key: str) -> str:
-    """网页端数据混淆加密"""
+    """数据混淆加密"""
     key_bytes = key.encode('utf-8')
     return base64.b64encode(bytes([b ^ key_bytes[i % len(key_bytes)] for i, b in enumerate(data.encode('utf-8'))])).decode('utf-8')
 
@@ -155,7 +154,7 @@ def sync_all_worker():
         for f in futures: f.result()
         time.sleep(max(0.1, SYNC_INTERVAL - (time.time() - start_time)))
 
-# ================= 页面模板 (加密混淆版) =================
+# ================= 页面模板 (7秒强同步版) =================
 PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -193,7 +192,7 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
         <tbody id="tbody"><tr><td colspan="4">解密加载中...</td></tr></tbody>
     </table>
     
-    <div id="vault" data-payload="$encrypted_payload" style="display:none"></div>
+    <div id="vault" data-payload="$encrypted_payload" data-remain="$remain_data" style="display:none"></div>
 
     <script nonce="$nonce">
     (function() {
@@ -212,26 +211,25 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
 
         const vault = document.getElementById('vault');
         let allData = {};
+        let timeLeft = { btc28: 60, fenfen28: 60, JND: 210 }; // 默认倒计时
+        
         try {
             allData = JSON.parse(xorDecrypt(vault.getAttribute('data-payload')));
+            timeLeft = JSON.parse(xorDecrypt(vault.getAttribute('data-remain')));
         } catch(e) { console.error("Data decryption failed"); }
 
         let currentGame = 'btc28';
-        let nextTs = 0;
-        let period = 60;
         const cdText = document.getElementById('cd');
         const tbody = document.getElementById('tbody');
         const btns = document.querySelectorAll('.tab-btn');
 
+        // 渲染表格
         function renderTable(gameKey) {
             const game = allData[gameKey];
             if (!game || !game.draws || game.draws.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="color:#ff003c;">暂无数据 / 抓取失败</td></tr>';
                 return;
             }
-            nextTs = game.next_ts;
-            period = game.period;
-
             const frag = document.createDocumentFragment();
             game.draws.forEach(r => {
                 const tr = document.createElement('tr');
@@ -248,13 +246,34 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
             tbody.appendChild(frag);
         }
 
+        // 每秒本地倒扣
         function tick() {
-            if (nextTs <= 0) { cdText.textContent = '--'; return; }
-            const now = Date.now() / 1000;
-            while (nextTs <= now) nextTs += period; 
-            cdText.textContent = Math.ceil(nextTs - now);
+            if (timeLeft[currentGame] > 0) {
+                timeLeft[currentGame]--;
+            }
+            cdText.textContent = timeLeft[currentGame];
         }
         setInterval(tick, 1000);
+
+        // ★ 强制每7秒向服务器请求时间校准 + 数据更新
+        async function syncData() {
+            try {
+                const res = await fetch('/_sync?_t=' + Date.now());
+                if (!res.ok) return;
+                
+                const json = await res.json();
+                const newAllData = JSON.parse(xorDecrypt(json.payload));
+                const newTimeLeft = JSON.parse(xorDecrypt(json.remain));
+                
+                // 覆盖更新
+                allData = newAllData;
+                timeLeft = newTimeLeft; 
+                
+                // 刷新表格（如果当前显示的数据需要更新）
+                renderTable(currentGame);
+            } catch(e) { /* 静默失败 */ }
+        }
+        setInterval(syncData, 7000); // 每7秒同步一次
 
         btns.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -262,12 +281,11 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
                 btn.classList.add('active');
                 currentGame = btn.getAttribute('data-game');
                 renderTable(currentGame);
-                tick();
             });
         });
 
         renderTable(currentGame);
-        tick();
+        cdText.textContent = timeLeft[currentGame];
     })();
     </script>
 </body>
@@ -279,30 +297,24 @@ class RequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 15
 
-    # 校验 API 签名 (30秒有效期 + 防重放)
     def _verify_api(self, query, path):
         try:
             ts = query.get("ts", [""])[0]
             nonce = query.get("nonce", [""])[0]
             sig = query.get("sig", [""])[0]
-            
             if not ts or not nonce or not sig: return False
             if len(nonce) > 64 or len(sig) != 64: return False
             
-            # 1. 30秒超时校验
             ts_i = int(ts)
             if abs(time.time() - ts_i) > 30: return False
             
-            # 2. 签名校验
             msg = f"{path}|{ts}|{nonce}".encode('utf-8')
             expected_sig = hmac.new(API_SECRET_KEY.encode('utf-8'), msg, hashlib.sha256).hexdigest()
             if not hmac.compare_digest(expected_sig, sig): return False
             
-            # 3. Nonce 防重放
             now = time.time()
             with NONCE_LOCK:
-                for k in [k for k, v in NONCE_STORE.items() if v < now]:
-                    del NONCE_STORE[k]
+                for k in [k for k, v in NONCE_STORE.items() if v < now]: del NONCE_STORE[k]
                 if nonce in NONCE_STORE: return False
                 NONCE_STORE[nonce] = now + 60
             return True
@@ -312,12 +324,11 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         client_ip = self.client_address[0]
         
-        # 0.3秒 5次 封禁检测
         if SECURITY.is_banned(client_ip):
-            self.send_error(403, "Banned: Too many requests. Banned for 30 minutes.")
+            self.send_error(403, "Banned for 30 mins")
             return
         if not SECURITY.check_rate_limit(client_ip):
-            self.send_error(429, "Too Many Requests. Banned for 30 minutes.")
+            self.send_error(429, "Too Many Requests. Banned for 30 mins")
             return
 
         try:
@@ -325,48 +336,89 @@ class RequestHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            # ================= 1. 网页端 (加密 HTML 渲染) =================
+            # ================= 1. 网页初始加载 =================
             if path == '/' or path == '/index.html':
                 with DATA_LOCK:
                     payload_data = {}
+                    remain_data = {}
+                    now = time.time()
                     for key in GAME_DATA:
                         payload_data[key] = {
                             "draws": GAME_DATA[key]["draws"],
                             "next_ts": int(GAME_DATA[key]["next_ts"]),
                             "period": PERIODS[key]
                         }
+                        remain_data[key] = max(0, int(GAME_DATA[key]["next_ts"] - now))
 
                 json_str = json.dumps(payload_data, ensure_ascii=False)
+                remain_str = json.dumps(remain_data, ensure_ascii=False)
+                
                 client_key = secrets.token_hex(8) 
                 encrypted_payload = x_xor(json_str, client_key)
+                encrypted_remain = x_xor(remain_str, client_key)
                 nonce = secrets.token_urlsafe(16)
 
-                html = PAGE_TEMPLATE.substitute(encrypted_payload=encrypted_payload, nonce=nonce, client_key=client_key)
+                html = PAGE_TEMPLATE.substitute(
+                    encrypted_payload=encrypted_payload, 
+                    remain_data=encrypted_remain, 
+                    nonce=nonce, 
+                    client_key=client_key
+                )
                 body = html.encode('utf-8')
 
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
                 self.send_header('X-Content-Type-Options', 'nosniff')
-                self.send_header('Content-Security-Policy', f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self';")
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
-            # ================= 2. 受保护的 API 接口 =================
+            # ================= 2. 网页内嵌 7秒同步接口 =================
+            elif path == '/_sync':
+                with DATA_LOCK:
+                    payload_data = {}
+                    remain_data = {}
+                    now = time.time()
+                    for key in GAME_DATA:
+                        payload_data[key] = {
+                            "draws": GAME_DATA[key]["draws"],
+                            "next_ts": int(GAME_DATA[key]["next_ts"]),
+                            "period": PERIODS[key]
+                        }
+                        remain_data[key] = max(0, int(GAME_DATA[key]["next_ts"] - now))
+
+                json_str = json.dumps(payload_data, ensure_ascii=False)
+                remain_str = json.dumps(remain_data, ensure_ascii=False)
+                
+                # 每次同步更换新密钥，防抓包
+                client_key = secrets.token_hex(8) 
+                encrypted_payload = x_xor(json_str, client_key)
+                encrypted_remain = x_xor(remain_str, client_key)
+
+                resp = {
+                    "key": client_key,
+                    "payload": encrypted_payload,
+                    "remain": encrypted_remain
+                }
+                
+                body = json.dumps(resp).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            # ================= 3. 受保护的 API 接口 =================
             elif path in ['/api/btc28', '/api/fenfen28', '/api/JND']:
-                
-                # ★ 核心：站长专属永久后门验证
                 admin_key = query.get('admin_key', [''])[0]
-                if admin_key == API_SECRET_KEY:
-                    pass # 验证通过，直接放行（永久有效）
-                
-                # 如果没有后门暗号，就走 30 秒签名验证
-                elif not self._verify_api(query, path):
+                if admin_key != API_SECRET_KEY and not self._verify_api(query, path):
                     self.send_response(401)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({"code": 401, "msg": "签名错误或链接已过期(30秒)"}).encode('utf-8'))
+                    self.wfile.write(json.dumps({"code": 401, "msg": "签名错误或链接已过期"}).encode('utf-8'))
                     return
 
                 game_key = path.split('/')[-1]
@@ -410,7 +462,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 安全策略: 站长专属后门永久有效 + 签名链接30秒防重放 + 0.3秒5次封禁30分钟")
+    print(f"[INFO] 强制7秒同步校准已开启，站长永久API已就绪")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
