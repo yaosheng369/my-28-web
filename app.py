@@ -9,12 +9,12 @@ import json
 import urllib3
 from concurrent.futures import ThreadPoolExecutor
 import os
+from collections import defaultdict
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 PORT = int(os.environ.get("PORT", 8080))
 SYNC_INTERVAL = 5
-# 🌟 防盗暗号
 API_SECRET_KEY = "captain_8888"
 
 URLS = {
@@ -32,6 +32,9 @@ GAME_DATA = {
 }
 LAST_ISSUE = {"btc28": "", "fenfen28": "", "JND": ""}
 DATA_LOCK = threading.Lock() 
+
+# 记录每个 IP 的请求时间，用于防爬虫限流
+IP_REQUEST_TIMES = defaultdict(float)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
@@ -117,7 +120,20 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(HTML_PAGE.encode('utf-8'))
                 
             elif self.path.startswith('/api/'):
-                # 防盗拦截
+                # 🌟 杀招一：IP 限流（防止别人用脚本狂刷）
+                client_ip = self.client_address[0]
+                now = time.time()
+                if now - IP_REQUEST_TIMES[client_ip] < 1.0:  # 1秒内只能请求1次，超了直接拒绝
+                    self.send_error(429, "Too Many Requests: 请求过快，已拦截")
+                    return
+                IP_REQUEST_TIMES[client_ip] = now
+                
+                # 🌟 杀招二：防盗链（只有从你的网页发出的请求才给数据）
+                referer = self.headers.get('Referer', '')
+                if referer and "my-28-web.onrender.com" not in referer and "127.0.0.1" not in referer:
+                    self.send_error(403, "Forbidden: 禁止盗链")
+
+                # 验证暗号
                 if f"key={API_SECRET_KEY}" not in self.path:
                     self.send_error(401, "Unauthorized: 请输入正确的暗号")
                     return
@@ -263,7 +279,7 @@ HTML_PAGE = """
             if (pollTimer) clearTimeout(pollTimer);
             if (fastRetryTimer) clearTimeout(fastRetryTimer);
             try {
-                // 网页端自带密码访问
+                // 网页自带暗号访问
                 const response = await fetch(`/api/${currentGame}?key=captain_8888`);
                 const res = await response.json();
                 if (res.status === "success") {
@@ -306,12 +322,19 @@ HTML_PAGE = """
             if (!isNew) container.scrollTop = scrollPos;
         }
 
+        // 🌟 倒计时核心计算逻辑
         setInterval(() => {
             const now = Date.now() / 1000, s = state[currentGame], elDraw = document.getElementById('draw-count');
             if (s.nextTs > 0) {
                 let drawLeft = Math.floor(s.nextTs - now);
-                if (drawLeft <= 0) { elDraw.innerText = "等待开奖"; elDraw.classList.add('waiting'); }
-                else { elDraw.innerText = formatCountdown(drawLeft); elDraw.classList.remove('waiting'); }
+                if (drawLeft <= 0) { 
+                    elDraw.innerText = "等待开奖"; 
+                    elDraw.classList.add('waiting'); // 变红闪烁
+                }
+                else { 
+                    elDraw.innerText = formatCountdown(drawLeft); 
+                    elDraw.classList.remove('waiting'); // 恢复绿色
+                }
             }
             if (s.lastSync > 0) {
                 let syncLeft = Math.floor(syncInterval - (now - s.lastSync));
