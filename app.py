@@ -55,8 +55,10 @@ class SecurityGuard:
         self.ip_records = defaultdict(list)
         self.banned_ips = {}
         self.lock = threading.Lock()
-        self.MAX_REQUESTS = 10       
-        self.WINDOW = 0.5           
+        
+        # ★ 放宽至 1秒内30次，彻底杜绝误杀正常用户
+        self.MAX_REQUESTS = 30       
+        self.WINDOW = 1.0           
         self.BAN_TIME = 1800        
 
     def is_banned(self, ip):
@@ -146,7 +148,6 @@ def sync_all_worker():
 
 # ================= HTML 页面生成 =================
 def build_html(client_key, encrypted_payload, nonce):
-    # 避免使用 string.Template，直接返回纯正 HTML 防止 JS 解析出错
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -251,24 +252,35 @@ def build_html(client_key, encrypted_payload, nonce):
             tbody.appendChild(frag);
         }}
 
+        // ★ 核心：彻底修复倒计时卡 0 的问题
         function tick() {{
             if (!allData[currentGame]) return;
             const nextTs = allData[currentGame].next_ts;
+            const period = allData[currentGame].period || 60; 
             const nowServer = Math.floor(Date.now() / 1000) - timeOffset;
+            
             let remain = Math.ceil(nextTs - nowServer);
-            if (remain < 0) remain = 0;
+            
+            // 如果倒计时<=0，本地强制加上周期，防止网络卡顿时卡死在 0
+            if (remain <= 0) {{
+                allData[currentGame].next_ts += period; 
+                remain = period;
+            }}
             cdText.textContent = remain;
         }}
         setInterval(tick, 1000);
 
         async function syncData() {{
+            badge.textContent = '🔄 请求上游中...';
             badge.classList.add('show');
             try {{
                 const res = await fetch('/_sync?_t=' + Date.now(), {{
                     cache: 'no-store',
                     headers: {{ 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }}
                 }});
-                if (!res.ok) throw new Error();
+                
+                // 如果被限流或者返回错误，不发红报错，默默放弃，等5秒后的下一次
+                if (!res.ok) throw new Error("Sync failed");
                 
                 const json = await res.json();
                 const dataObj = JSON.parse(xorDecrypt(json.payload));
@@ -282,7 +294,8 @@ def build_html(client_key, encrypted_payload, nonce):
                 badge.textContent = '✅ 已更新';
                 setTimeout(() => badge.classList.remove('show'), 1000);
             }} catch(e) {{ 
-                badge.textContent = '❌ 同步失败';
+                // 网络波动时显示“网络波动”，不再吓人
+                badge.textContent = '⚠️ 网络波动';
                 setTimeout(() => badge.classList.remove('show'), 2000);
             }}
         }}
@@ -312,6 +325,13 @@ class RequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 15
 
+    # ★ 核心修复：获取真实用户 IP，防止被 Render 内部代理 IP 误杀
+    def get_client_ip(self):
+        xff = self.headers.get('X-Forwarded-For')
+        if xff:
+            return xff.split(',')[0].strip()
+        return self.client_address[0]
+
     def _verify_api(self, query, path):
         try:
             ts = query.get("ts", [""])[0]
@@ -337,7 +357,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return False
 
     def do_GET(self):
-        client_ip = self.client_address[0]
+        client_ip = self.get_client_ip() # ★ 使用真实 IP 判断
         
         if SECURITY.is_banned(client_ip):
             self.send_error(403, "Banned for 30 mins")
@@ -351,7 +371,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            # ================= 1. 网页初始加载 =================
             if path == '/' or path == '/index.html':
                 with DATA_LOCK:
                     payload_data = {
@@ -382,7 +401,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
-            # ================= 2. 网页内嵌 5秒强同步接口 =================
             elif path == '/_sync':
                 with DATA_LOCK:
                     payload_data = {
@@ -416,7 +434,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
-            # ================= 3. 受保护的 API 接口 =================
             elif path in ['/api/btc28', '/api/fenfen28', '/api/JND']:
                 admin_key = query.get('admin_key', [''])[0]
                 if admin_key != API_SECRET_KEY and not self._verify_api(query, path):
@@ -467,7 +484,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 最终修复版，精确5秒强同步校准开启")
+    print(f"[INFO] 完美修正倒计时卡0，真实IP获取已开启")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
