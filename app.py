@@ -14,6 +14,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 端口配置
 PORT = int(os.environ.get("PORT", 8080))
+API_SECRET_KEY = "captain_8888"
 SYNC_INTERVAL = 5
 
 URLS = {
@@ -110,30 +111,37 @@ def sync_all_worker():
 
 class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        try:
-            if self.path == '/' or self.path == '/index.html':
-                self.send_response(200)
-                self.send_header('Content-type', 'text/html; charset=utf-8')
-                self.end_headers()
-                self.wfile.write(HTML_PAGE.encode('utf-8'))
+    try:
+        if self.path == '/' or self.path == '/index.html':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(HTML_PAGE.encode('utf-8'))
+            
+        elif self.path.startswith('/api/'):
+            if f"key={API_SECRET_KEY}" not in self.path:
+                self.send_error(401, "Unauthorized")
+                return
                 
-            elif self.path.startswith('/api/'):
-                game_key = self.path.replace('/api/', '')
-                if game_key in GAME_DATA:
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json; charset=utf-8')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    
-                    with DATA_LOCK:
-                        gd = GAME_DATA[game_key]
-                        response_data = {"status": "success", "next_draw_ts": gd["next_ts"], "last_sync_ts": gd["last_sync"], "sync_interval": SYNC_INTERVAL, "data": gd["draws"]}
-                    self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
-                else:
-                    self.send_error(404, "API Not Found")
+            game_key = self.path.replace('/api/', '').split('?')[0]
+            
+            if game_key in GAME_DATA:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                
+                with DATA_LOCK:
+                    gd = GAME_DATA[game_key]
+                    response_data = {"status": "success", "next_draw_ts": gd["next_ts"], "last_sync_ts": gd["last_sync"], "sync_interval": SYNC_INTERVAL, "data": gd["draws"]}
+                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
             else:
-                self.send_error(404, "Not Found")
-        except (BrokenPipeError, ConnectionResetError): pass
+                self.send_error(404, "API Not Found")
+        else:
+            self.send_error(404, "Not Found")
+    except (BrokenPipeError, ConnectionResetError): pass
+
+    
 
     def log_message(self, format, *args): pass
 
@@ -258,7 +266,7 @@ HTML_PAGE = """
             if (pollTimer) clearTimeout(pollTimer);
             if (fastRetryTimer) clearTimeout(fastRetryTimer);
             try {
-                const response = await fetch(`/api/${currentGame}`);
+                const response = await fetch(\/api/${currentGame}?key=captain_8888`);`
                 const res = await response.json();
                 if (res.status === "success") {
                     if (res.next_draw_ts > 0) {
