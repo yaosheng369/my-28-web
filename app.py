@@ -23,7 +23,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================= 配置区域 =================
 PORT = int(os.environ.get("PORT", 8080))
-SYNC_INTERVAL = 2  # ★ 修复：后端每2秒抓取一次源站，确保接口最新
+SYNC_INTERVAL = 2  # 后端每2秒抓取一次源站
 API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "captain_8888_super_secret_key_2024")
 
 URLS = {
@@ -57,7 +57,7 @@ class SecurityGuard:
         self.banned_ips = {}
         self.lock = threading.Lock()
         
-        # ★ 修复：放宽至 0.5秒内最多10次，防止多标签页或狂刷新被误伤
+        # 0.5秒内最多10次，防止多标签页或狂刷新被误伤
         self.MAX_REQUESTS = 10       
         self.WINDOW = 0.5           
         self.BAN_TIME = 1800        
@@ -147,7 +147,7 @@ def sync_all_worker():
         for f in futures: f.result()
         time.sleep(max(0.1, SYNC_INTERVAL - (time.time() - start_time)))
 
-# ================= 页面模板 (4秒强同步版) =================
+# ================= 页面模板 (精准时间校准版) =================
 PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -156,12 +156,26 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
     <title>舰长开奖网站</title>
     <style nonce="$nonce">
         body { background: #0a0a0c; color: #e0e0e0; font-family: monospace; padding: 15px; margin: 0; }
-        .header { text-align: center; border: 1px solid #00f3ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        
+        /* 头部区域改为相对定位，方便放右上角提示 */
+        .header { position: relative; text-align: center; border: 1px solid #00f3ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         .title { color: #00f3ff; font-size: 24px; margin: 0 0 10px 0; }
         .countdown { color: #00ff9d; font-size: 20px; margin-top: 8px; font-weight: bold; }
+        
+        /* ★ 红框处的同步提示标签 */
+        .sync-badge { 
+            position: absolute; right: 10px; top: 10px;
+            font-size: 12px; color: #00f3ff; 
+            background: rgba(0, 243, 255, 0.1); 
+            padding: 4px 8px; border-radius: 4px; border: 1px solid #00f3ff;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+        .sync-badge.show { opacity: 1; }
+
         .tabs { display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; }
         .tab-btn { background: #1a1a1a; color: #888; border: 1px solid #333; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 16px; transition: all 0.3s; }
         .tab-btn.active { background: #00f3ff; color: #000; border-color: #00f3ff; font-weight: bold; box-shadow: 0 0 10px rgba(0,243,255,0.5); }
+        
         table { width: 100%; border-collapse: collapse; text-align: center; }
         th { color: #00f3ff; padding: 10px; border-bottom: 1px solid #333; }
         td { padding: 10px; border-bottom: 1px solid #222; }
@@ -174,7 +188,10 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
     <div class="header">
         <h1 class="title">⚡ 舰长开奖网站 ⚡</h1>
         <div class="countdown">下一期开奖倒计时：<span id="cd">--</span> 秒</div>
+        <!-- ★ 右上角提示框 -->
+        <div id="sync-badge" class="sync-badge">🔄 同步中...</div>
     </div>
+    
     <div class="tabs">
         <button class="tab-btn active" data-game="btc28">比特28</button>
         <button class="tab-btn" data-game="fenfen28">分分28</button>
@@ -185,7 +202,7 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
         <tbody id="tbody"><tr><td colspan="4">解密加载中...</td></tr></tbody>
     </table>
     
-    <div id="vault" data-payload="$encrypted_payload" data-remain="$remain_data" style="display:none"></div>
+    <div id="vault" data-payload="$encrypted_payload" style="display:none"></div>
 
     <script nonce="$nonce">
     (function() {
@@ -204,17 +221,20 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
 
         const vault = document.getElementById('vault');
         let allData = {};
-        let timeLeft = { btc28: 60, fenfen28: 60, JND: 210 };
-        
-        try {
-            allData = JSON.parse(xorDecrypt(vault.getAttribute('data-payload')));
-            timeLeft = JSON.parse(xorDecrypt(vault.getAttribute('data-remain')));
-        } catch(e) { console.error("初始数据解密失败"); }
-
+        let timeOffset = 0; // ★ 核心：前端与服务器的时间差
         let currentGame = 'btc28';
         const cdText = document.getElementById('cd');
         const tbody = document.getElementById('tbody');
         const btns = document.querySelectorAll('.tab-btn');
+        const badge = document.getElementById('sync-badge');
+
+        // 解析初始数据
+        try {
+            const dataObj = JSON.parse(xorDecrypt(vault.getAttribute('data-payload')));
+            allData = dataObj.games;
+            // 记录本地时间和服务器时间的差值（秒）
+            timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
+        } catch(e) { console.error("初始数据解密失败"); }
 
         function renderTable(gameKey) {
             const game = allData[gameKey];
@@ -238,38 +258,56 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
             tbody.appendChild(frag);
         }
 
-        // 每秒本地倒扣
+        // ★ 倒计时核心：利用服务器发来的 next_ts 和本地时间差，完美消除本地时钟误差
         function tick() {
-            if (timeLeft[currentGame] > 0) {
-                timeLeft[currentGame]--;
-            }
-            cdText.textContent = timeLeft[currentGame];
+            if (!allData[currentGame]) return;
+            
+            const nextTs = allData[currentGame].next_ts;
+            // 当前真实的服务器时间
+            const nowServer = Math.floor(Date.now() / 1000) - timeOffset;
+            
+            let remain = Math.ceil(nextTs - nowServer);
+            if (remain < 0) remain = 0;
+            cdText.textContent = remain;
         }
         setInterval(tick, 1000);
 
-        // ★ 修复：强制每4秒向服务器无缓存请求
+        // ★ 每 5 秒同步请求上游数据并刷新画面
         async function syncData() {
+            // 显示提示
+            badge.textContent = '🔄 请求上游中...';
+            badge.classList.add('show');
+
             try {
+                // 加时间戳防止 CDN/浏览器缓存
                 const res = await fetch('/_sync?_t=' + Date.now(), {
                     cache: 'no-store',
                     headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
                 });
-                if (!res.ok) return; // 被限流或报错则静默放弃本次
+                if (!res.ok) throw new Error();
                 
                 const json = await res.json();
-                const newAllData = JSON.parse(xorDecrypt(json.payload));
-                const newTimeLeft = JSON.parse(xorDecrypt(json.remain));
+                const dataObj = JSON.parse(xorDecrypt(json.payload));
                 
-                allData = newAllData;
-                timeLeft = newTimeLeft; 
+                // 覆盖最新数据
+                allData = dataObj.games;
+                // 同步刷新时间差（每次同步都会把本地误差清零，强制校准）
+                timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
                 
                 renderTable(currentGame);
-                cdText.textContent = timeLeft[currentGame]; // 强制校准显示
+                tick(); // 立即刷新一次显示
+
+                // 提示成功并延时隐藏
+                badge.textContent = '✅ 已更新';
+                setTimeout(() => badge.classList.remove('show'), 1000);
             } catch(e) { 
-                console.error("同步失败", e); // 兜底捕获，防止定时器中断
+                badge.textContent = '❌ 同步失败';
+                setTimeout(() => badge.classList.remove('show'), 2000);
             }
         }
-        setInterval(syncData, 4000); // ★ 改为每 4 秒同步一次
+        
+        // 强制每 5 秒触发一次
+        setInterval(syncData, 5000); 
 
         btns.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -277,12 +315,13 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
                 btn.classList.add('active');
                 currentGame = btn.getAttribute('data-game');
                 renderTable(currentGame);
-                cdText.textContent = timeLeft[currentGame];
+                tick(); // 切换后立即刷新倒计时
             });
         });
 
+        // 初始渲染
         renderTable(currentGame);
-        cdText.textContent = timeLeft[currentGame];
+        tick();
     })();
     </script>
 </body>
@@ -336,28 +375,24 @@ class RequestHandler(BaseHTTPRequestHandler):
             # ================= 1. 网页初始加载 =================
             if path == '/' or path == '/index.html':
                 with DATA_LOCK:
-                    payload_data = {}
-                    remain_data = {}
-                    now = time.time()
+                    payload_data = {
+                        "server_time": int(time.time()),
+                        "games": {}
+                    }
                     for key in GAME_DATA:
-                        payload_data[key] = {
+                        payload_data["games"][key] = {
                             "draws": GAME_DATA[key]["draws"],
                             "next_ts": int(GAME_DATA[key]["next_ts"]),
                             "period": PERIODS[key]
                         }
-                        remain_data[key] = max(0, int(GAME_DATA[key]["next_ts"] - now))
 
                 json_str = json.dumps(payload_data, ensure_ascii=False)
-                remain_str = json.dumps(remain_data, ensure_ascii=False)
-                
                 client_key = secrets.token_hex(8) 
                 encrypted_payload = x_xor(json_str, client_key)
-                encrypted_remain = x_xor(remain_str, client_key)
                 nonce = secrets.token_urlsafe(16)
 
                 html = PAGE_TEMPLATE.substitute(
                     encrypted_payload=encrypted_payload, 
-                    remain_data=encrypted_remain, 
                     nonce=nonce, 
                     client_key=client_key
                 )
@@ -367,44 +402,39 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
                 self.send_header('X-Content-Type-Options', 'nosniff')
-                # 禁止 CDN 缓存网页
                 self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
-            # ================= 2. 网页内嵌 4秒强同步接口 =================
+            # ================= 2. 网页内嵌 5秒强同步接口 =================
             elif path == '/_sync':
                 with DATA_LOCK:
-                    payload_data = {}
-                    remain_data = {}
-                    now = time.time()
+                    payload_data = {
+                        "server_time": int(time.time()),
+                        "games": {}
+                    }
                     for key in GAME_DATA:
-                        payload_data[key] = {
+                        payload_data["games"][key] = {
                             "draws": GAME_DATA[key]["draws"],
                             "next_ts": int(GAME_DATA[key]["next_ts"]),
                             "period": PERIODS[key]
                         }
-                        remain_data[key] = max(0, int(GAME_DATA[key]["next_ts"] - now))
 
                 json_str = json.dumps(payload_data, ensure_ascii=False)
-                remain_str = json.dumps(remain_data, ensure_ascii=False)
-                
                 client_key = secrets.token_hex(8) 
                 encrypted_payload = x_xor(json_str, client_key)
-                encrypted_remain = x_xor(remain_str, client_key)
 
                 resp = {
                     "key": client_key,
-                    "payload": encrypted_payload,
-                    "remain": encrypted_remain
+                    "payload": encrypted_payload
                 }
                 
                 body = json.dumps(resp).encode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
-                # ★ 核心修复：彻底断绝浏览器 CDN 缓存此接口
+                # 彻底断绝浏览器 CDN 缓存
                 self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
                 self.send_header('Pragma', 'no-cache')
                 self.send_header('Expires', '0')
@@ -463,7 +493,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 强制4秒同步校准已开启，CDN缓存已击穿")
+    print(f"[INFO] 完美时间校准 + 5秒强同步已开启")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
