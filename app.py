@@ -23,9 +23,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================= 配置区域 =================
 PORT = int(os.environ.get("PORT", 8080))
-SYNC_INTERVAL = 5
-
-# ★ 你的核心超级密钥（站长后门 + 签名密钥）
+SYNC_INTERVAL = 2  # ★ 修复：后端每2秒抓取一次源站，确保接口最新
 API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "captain_8888_super_secret_key_2024")
 
 URLS = {
@@ -49,8 +47,6 @@ GAME_DATA = {
     "JND": {"draws": [], "next_ts": 0}
 }
 DATA_LOCK = threading.Lock()
-
-# 防重放记录池
 NONCE_STORE = {}
 NONCE_LOCK = threading.Lock()
 
@@ -61,9 +57,9 @@ class SecurityGuard:
         self.banned_ips = {}
         self.lock = threading.Lock()
         
-        # ★ 极限防刷：0.3秒内最多5次，封禁30分钟
-        self.MAX_REQUESTS = 5       
-        self.WINDOW = 0.3           
+        # ★ 修复：放宽至 0.5秒内最多10次，防止多标签页或狂刷新被误伤
+        self.MAX_REQUESTS = 10       
+        self.WINDOW = 0.5           
         self.BAN_TIME = 1800        
 
     def is_banned(self, ip):
@@ -79,28 +75,25 @@ class SecurityGuard:
         with self.lock:
             now = time.time()
             self.ip_records[ip] = [t for t in self.ip_records[ip] if now - t < self.WINDOW]
-            
             if len(self.ip_records[ip]) >= self.MAX_REQUESTS:
                 self.banned_ips[ip] = now + self.BAN_TIME
                 return False
-            
             self.ip_records[ip].append(now)
             return True
 
 SECURITY = SecurityGuard()
 
 def x_xor(data: str, key: str) -> str:
-    """数据混淆加密"""
     key_bytes = key.encode('utf-8')
     return base64.b64encode(bytes([b ^ key_bytes[i % len(key_bytes)] for i, b in enumerate(data.encode('utf-8'))])).decode('utf-8')
 
-# ================= 数据抓取逻辑 =================
+# ================= 数据抓取 =================
 def fetch_data(game_key):
     url = URLS[game_key]
     try:
         with requests.Session() as s:
             s.headers.update(HEADERS)
-            response = s.get(url, timeout=8, verify=False)
+            response = s.get(url, timeout=6, verify=False)
             response.encoding = 'utf-8'
             if response.status_code != 200: return False
 
@@ -154,7 +147,7 @@ def sync_all_worker():
         for f in futures: f.result()
         time.sleep(max(0.1, SYNC_INTERVAL - (time.time() - start_time)))
 
-# ================= 页面模板 (7秒强同步版) =================
+# ================= 页面模板 (4秒强同步版) =================
 PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -211,19 +204,18 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
 
         const vault = document.getElementById('vault');
         let allData = {};
-        let timeLeft = { btc28: 60, fenfen28: 60, JND: 210 }; // 默认倒计时
+        let timeLeft = { btc28: 60, fenfen28: 60, JND: 210 };
         
         try {
             allData = JSON.parse(xorDecrypt(vault.getAttribute('data-payload')));
             timeLeft = JSON.parse(xorDecrypt(vault.getAttribute('data-remain')));
-        } catch(e) { console.error("Data decryption failed"); }
+        } catch(e) { console.error("初始数据解密失败"); }
 
         let currentGame = 'btc28';
         const cdText = document.getElementById('cd');
         const tbody = document.getElementById('tbody');
         const btns = document.querySelectorAll('.tab-btn');
 
-        // 渲染表格
         function renderTable(gameKey) {
             const game = allData[gameKey];
             if (!game || !game.draws || game.draws.length === 0) {
@@ -255,25 +247,29 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
         }
         setInterval(tick, 1000);
 
-        // ★ 强制每7秒向服务器请求时间校准 + 数据更新
+        // ★ 修复：强制每4秒向服务器无缓存请求
         async function syncData() {
             try {
-                const res = await fetch('/_sync?_t=' + Date.now());
-                if (!res.ok) return;
+                const res = await fetch('/_sync?_t=' + Date.now(), {
+                    cache: 'no-store',
+                    headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+                });
+                if (!res.ok) return; // 被限流或报错则静默放弃本次
                 
                 const json = await res.json();
                 const newAllData = JSON.parse(xorDecrypt(json.payload));
                 const newTimeLeft = JSON.parse(xorDecrypt(json.remain));
                 
-                // 覆盖更新
                 allData = newAllData;
                 timeLeft = newTimeLeft; 
                 
-                // 刷新表格（如果当前显示的数据需要更新）
                 renderTable(currentGame);
-            } catch(e) { /* 静默失败 */ }
+                cdText.textContent = timeLeft[currentGame]; // 强制校准显示
+            } catch(e) { 
+                console.error("同步失败", e); // 兜底捕获，防止定时器中断
+            }
         }
-        setInterval(syncData, 7000); // 每7秒同步一次
+        setInterval(syncData, 4000); // ★ 改为每 4 秒同步一次
 
         btns.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -281,6 +277,7 @@ PAGE_TEMPLATE = Template(r"""<!DOCTYPE html>
                 btn.classList.add('active');
                 currentGame = btn.getAttribute('data-game');
                 renderTable(currentGame);
+                cdText.textContent = timeLeft[currentGame];
             });
         });
 
@@ -370,11 +367,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
                 self.send_header('X-Content-Type-Options', 'nosniff')
+                # 禁止 CDN 缓存网页
+                self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
-            # ================= 2. 网页内嵌 7秒同步接口 =================
+            # ================= 2. 网页内嵌 4秒强同步接口 =================
             elif path == '/_sync':
                 with DATA_LOCK:
                     payload_data = {}
@@ -391,7 +390,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 json_str = json.dumps(payload_data, ensure_ascii=False)
                 remain_str = json.dumps(remain_data, ensure_ascii=False)
                 
-                # 每次同步更换新密钥，防抓包
                 client_key = secrets.token_hex(8) 
                 encrypted_payload = x_xor(json_str, client_key)
                 encrypted_remain = x_xor(remain_str, client_key)
@@ -406,7 +404,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
-                self.send_header('Cache-Control', 'no-store')
+                # ★ 核心修复：彻底断绝浏览器 CDN 缓存此接口
+                self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+                self.send_header('Pragma', 'no-cache')
+                self.send_header('Expires', '0')
                 self.end_headers()
                 self.wfile.write(body)
                 return
@@ -462,7 +463,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 强制7秒同步校准已开启，站长永久API已就绪")
+    print(f"[INFO] 强制4秒同步校准已开启，CDN缓存已击穿")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
