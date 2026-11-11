@@ -18,6 +18,7 @@ API_CONFIG = {
 HISTORY_FILE = "predict_history.json"
 CACHE_EXPIRE_SECONDS = 3
 API_CACHE = {} 
+SECRET_SALT = "secure_28_web_2024" 
 
 # ================= 预测算法区 =================
 def predict_btc28(draws):
@@ -73,95 +74,127 @@ def save_history(history):
     with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
-# ================= 前端 HTML =================
+# ================= 前端 HTML (赛博朋克科技风) =================
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>舰长 28 智能预测系统</title>
+    <title>SKYNET 28 智能预测终端</title>
     <style>
+        :root {
+            --bg-color: #050505;
+            --panel-bg: rgba(15, 20, 30, 0.75);
+            --border-color: rgba(0, 243, 255, 0.2);
+            --cyan: #00f3ff;
+            --red: #ff003c;
+            --green: #00ff88;
+            --text-main: #e2e8f0;
+            --text-muted: #64748b;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #070b14; color: #e2e8f0; padding: 15px; }
-        .container { max-width: 800px; margin: 0 auto; background: #101827; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); overflow: hidden; border: 1px solid #1e293b; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: var(--text-main); min-height: 100vh; background-image: 
+            linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px; padding: 15px; }
         
-        /* 头部与同步状态 */
-        .header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 25px 20px; text-align: center; border-bottom: 2px solid #3b82f6; position: relative; }
-        .header h1 { font-size: 24px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(59,130,246,0.6); color: #60a5fa; }
-        .header p { font-size: 13px; margin-top: 5px; color: #94a3b8; letter-spacing: 1px; }
+        /* 扫描线特效 */
+        body::after { content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 2px, 3px 100%; pointer-events: none; z-index: 9999; opacity: 0.5;}
         
-        .sync-status { position: absolute; top: 20px; right: 20px; font-size: 12px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 20px; border: 1px solid #334155; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
-        .dot.success { background: #10b981; box-shadow: 0 0 8px #10b981; }
-        .dot.error { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
-        .dot.syncing { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; animation: pulse 1s infinite alternate; }
+        .container { max-width: 800px; margin: 0 auto; position: relative; z-index: 10; }
+        
+        /* 头部与状态 */
+        .header { text-align: center; padding: 20px 0; position: relative; margin-bottom: 20px; }
+        .header h1 { font-size: 28px; letter-spacing: 5px; color: var(--cyan); text-shadow: 0 0 10px var(--cyan), 0 0 20px rgba(0, 243, 255, 0.5); font-weight: 900; }
+        .header p { font-size: 12px; letter-spacing: 2px; color: var(--text-muted); margin-top: 5px; text-transform: uppercase; }
+        
+        .sync-status { position: absolute; top: 25px; right: 10px; font-size: 12px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border-color); font-family: monospace; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+        .dot.success { background: var(--green); box-shadow: 0 0 10px var(--green); }
+        .dot.error { background: var(--red); box-shadow: 0 0 10px var(--red); }
+        .dot.syncing { background: #f59e0b; box-shadow: 0 0 10px #f59e0b; animation: pulse 1s infinite alternate; }
         @keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
         
-        /* 切换栏 */
-        .mode-switch { display: flex; background: #0f172a; border-bottom: 1px solid #1e293b; }
-        .mode-btn { flex: 1; padding: 15px; text-align: center; cursor: pointer; color: #64748b; font-weight: bold; font-size: 15px; transition: 0.3s; border-bottom: 2px solid transparent; }
-        .mode-btn.active { color: #60a5fa; border-bottom: 2px solid #3b82f6; background: #101827; }
+        /* 模式切换 */
+        .mode-switch { display: flex; gap: 10px; margin-bottom: 20px; }
+        .mode-btn { flex: 1; padding: 15px; text-align: center; cursor: pointer; color: var(--text-muted); font-weight: bold; font-size: 15px; background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; transition: 0.3s; backdrop-filter: blur(10px); }
+        .mode-btn.active { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 15px rgba(0, 243, 255, 0.3); background: rgba(0, 243, 255, 0.05); }
         
-        .tabs { display: flex; background: #0f172a; padding: 10px; gap: 10px; }
-        .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: #94a3b8; font-weight: bold; font-size: 14px; border-radius: 8px; transition: 0.3s; background: #1e293b; border: 1px solid #334155; }
-        .tab.active { background: #3b82f6; color: #fff; box-shadow: 0 0 15px rgba(59,130,246,0.6); border-color: #3b82f6; }
+        /* 游戏分类 */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: var(--text-muted); font-size: 14px; background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 6px; transition: 0.3s; font-weight: bold; }
+        .tab.active { color: #fff; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 20px rgba(0, 243, 255, 0.6); }
+
+        /* 科技面板通用 */
+        .panel { background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; backdrop-filter: blur(10px); box-shadow: inset 0 0 20px rgba(0,0,0,0.5); position: relative; }
+        .panel::before { content: ''; position: absolute; top: 0; left: 0; width: 20px; height: 2px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+        .panel::after { content: ''; position: absolute; bottom: 0; right: 0; width: 20px; height: 2px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+
+        /* 倒计时区 */
+        .dashboard { display: flex; gap: 15px; }
+        .timer-box { flex: 1; text-align: center; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); }
+        .timer-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 1px; }
+        .timer-val { font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 900; color: var(--cyan); text-shadow: 0 0 15px rgba(0, 243, 255, 0.6); }
+        .timer-val.waiting { color: var(--red); text-shadow: 0 0 20px var(--red); animation: pulse 0.5s infinite alternate; font-size: 24px; display: flex; align-items: center; justify-content: center; height: 45px;}
+
+        /* 预测区 */
+        .prediction-area { display: flex; gap: 15px; margin-bottom: 20px; }
+        .pred-box { flex: 1; padding: 20px 15px; text-align: center; border-radius: 12px; position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;}
+        .kill-box { background: rgba(255, 0, 60, 0.05); border: 1px solid rgba(255, 0, 60, 0.3); box-shadow: inset 0 0 30px rgba(255, 0, 60, 0.1); }
+        .push-box { background: rgba(0, 255, 136, 0.05); border: 1px solid rgba(0, 255, 136, 0.3); box-shadow: inset 0 0 30px rgba(0, 255, 136, 0.1); }
         
-        .content { padding: 20px; }
+        .target-issue { font-size: 12px; color: #fff; background: rgba(0,0,0,0.6); padding: 4px 12px; border-radius: 20px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); letter-spacing: 1px;}
+        .target-issue span { color: var(--cyan); font-weight: bold; }
         
-        /* 双倒计时仪表盘 */
-        .dashboard { display: flex; gap: 15px; margin-bottom: 20px; }
-        .timer-box { flex: 1; background: #0f172a; border-radius: 12px; padding: 20px 15px; text-align: center; border: 1px solid #1e293b; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); position: relative; }
-        .timer-label { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
-        .timer-val { font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 900; color: #06b6d4; text-shadow: 0 0 15px rgba(6,182,212,0.5); transition: 0.3s; }
-        .timer-val.waiting { color: #ef4444; text-shadow: 0 0 15px rgba(239,68,68,0.8); animation: pulse 0.8s infinite alternate; font-size: 22px; }
-        
-        /* 预测展示区 */
-        .prediction-area { display: flex; gap: 15px; margin-bottom: 25px; }
-        .pred-box { flex: 1; padding: 20px 15px; border-radius: 12px; text-align: center; position: relative; backdrop-filter: blur(10px); display: flex; flex-direction: column; align-items: center; }
-        .kill-box { background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); }
-        .push-box { background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); box-shadow: 0 0 15px rgba(16, 185, 129, 0.1); }
-        
-        /* 目标期号放到方框内 */
-        .target-issue { font-size: 12px; color: #cbd5e1; background: rgba(0,0,0,0.4); padding: 3px 10px; border-radius: 12px; margin-bottom: 12px; border: 1px solid #334155; }
-        .target-issue span { color: #f43f5e; font-weight: bold; margin-left: 5px; }
-        
-        .pred-title { font-size: 14px; margin-bottom: 10px; color: #cbd5e1; font-weight: bold; }
-        .pred-value { font-size: 28px; font-weight: 900; letter-spacing: 2px; }
-        .kill-value { color: #ef4444; text-shadow: 0 0 12px rgba(239,68,68,0.5); }
-        .push-value { color: #10b981; text-shadow: 0 0 12px rgba(16,185,129,0.5); font-size: 20px; }
-        
+        .pred-title { font-size: 14px; margin-bottom: 10px; color: var(--text-muted); letter-spacing: 2px; }
+        .pred-value { font-size: 36px; font-weight: 900; letter-spacing: 3px; }
+        .kill-value { color: var(--red); text-shadow: 0 0 15px rgba(255, 0, 60, 0.6); }
+        .push-value { color: var(--green); text-shadow: 0 0 15px rgba(0, 255, 136, 0.6); font-size: 22px; }
+
+        /* 数据统计面板 */
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .stat-item { text-align: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+        .stat-label { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+        .stat-val { font-size: 20px; font-weight: bold; font-family: monospace; }
+        .stat-val.green { color: var(--green); text-shadow: 0 0 10px rgba(0,255,136,0.4); }
+        .stat-val.red { color: var(--red); text-shadow: 0 0 10px rgba(255,0,60,0.4); }
+
         /* 列表通用 */
-        .list-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; color: #60a5fa; border-left: 4px solid #3b82f6; padding-left: 10px; margin-top: 20px; display: flex; align-items: center; gap: 8px;}
-        .record-list { max-height: 400px; overflow-y: auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; }
-        .lottery-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #1e293b; font-size: 14px; color: #e2e8f0; }
-        .lottery-issue { color: #64748b; font-size: 12px; width: 120px; line-height: 1.4; }
-        .lottery-raw { flex: 1; font-weight: bold; font-size: 16px; font-family: monospace; color: #cbd5e1; }
-        .lottery-type { width: 60px; text-align: center; border-radius: 6px; padding: 6px 0; font-size: 12px; color: #fff; font-weight: bold; }
-        .type-大单, .type-大双 { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; text-shadow: 0 0 5px rgba(239,68,68,0.5); }
-        .type-小单, .type-小双 { background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #3b82f6; text-shadow: 0 0 5px rgba(59,130,246,0.5); }
+        .list-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; color: var(--cyan); border-left: 4px solid var(--cyan); padding-left: 10px; display: flex; align-items: center; gap: 8px; letter-spacing: 1px;}
+        .list-container { max-height: 400px; overflow-y: auto; border-radius: 8px; }
+        
+        /* 开奖列表 */
+        .lottery-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
+        .lottery-item:last-child { border-bottom: none; }
+        .lottery-issue { color: var(--text-muted); font-size: 12px; width: 100px; line-height: 1.4; font-family: monospace; }
+        .lottery-raw { flex: 1; font-weight: bold; font-size: 16px; font-family: 'Courier New', Courier, monospace; color: #fff; }
+        .lottery-type { width: 60px; text-align: center; border-radius: 4px; padding: 4px 0; font-size: 12px; font-weight: bold; }
+        .type-大单, .type-大双 { background: rgba(255, 0, 60, 0.15); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
+        .type-小单, .type-小双 { background: rgba(0, 243, 255, 0.15); color: var(--cyan); border: 1px solid rgba(0,243,255,0.3); }
         
         /* 预测记录 */
-        .record-item { display: flex; flex-direction: column; gap: 8px; padding: 15px; border-bottom: 1px solid #1e293b; color: #e2e8f0; font-size: 13px; }
-        .record-item:last-child { border-bottom: none; }
-        .record-header { display: flex; justify-content: space-between; color: #64748b; font-size: 12px; }
+        .record-item { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
+        .record-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; font-family: monospace; }
         .record-body { display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
-        .win-tag { color: #fff; background: #ef4444; padding: 3px 10px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(239,68,68,0.5); }
-        .lose-tag { color: #fff; background: #475569; padding: 3px 10px; border-radius: 4px; font-size: 12px; }
-        .pending-tag { color: #fff; background: #f59e0b; padding: 3px 10px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(245,158,11,0.5); animation: pulse 1s infinite alternate;}
         
-        .loading { text-align: center; padding: 30px; color: #64748b; font-size: 14px; }
-        .error { text-align: center; padding: 30px; color: #ef4444; font-size: 14px; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .win-tag { color: var(--green); border: 1px solid var(--green); padding: 2px 8px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,136,0.3); }
+        .lose-tag { color: var(--text-muted); border: 1px solid var(--text-muted); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .pending-tag { color: #f59e0b; border: 1px solid #f59e0b; padding: 2px 8px; border-radius: 4px; font-size: 12px; animation: pulse 1s infinite alternate;}
+        
+        .loading { text-align: center; padding: 30px; color: var(--cyan); font-size: 14px; font-family: monospace; letter-spacing: 2px;}
+        .error { text-align: center; padding: 30px; color: var(--red); font-size: 14px; }
+        
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 2px; }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
-        <h1>舰长 28 系统</h1>
-        <p>智能算法 · 杀一推三 · 极速同步</p>
+        <h1>SKYNET 28</h1>
+        <p>Smart Predictive Terminal</p>
         <div class="sync-status">
             <div class="dot" id="sync-dot"></div>
             <span id="sync-text">未连接</span>
@@ -179,11 +212,11 @@ HTML_CONTENT = """
         <div class="tab" data-game="JND" onclick="switchGame('JND')">加拿大28</div>
     </div>
 
-    <div class="content">
-        <!-- 预测大厅 -->
-        <div id="predict-view" style="display:block;">
-            
-            <!-- 两个倒计时框 -->
+    <!-- 预测视图 -->
+    <div id="predict-view" style="display:block;">
+        
+        <!-- 倒计时面板 -->
+        <div class="panel">
             <div class="dashboard">
                 <div class="timer-box">
                     <div class="timer-label">本期开奖倒计时</div>
@@ -194,37 +227,67 @@ HTML_CONTENT = """
                     <div class="timer-val" id="predict-timer">--:--</div>
                 </div>
             </div>
-            
-            <!-- 预测结果 (期号已移入框内) -->
-            <div class="prediction-area">
-                <div class="pred-box kill-box">
-                    <div class="target-issue">目标期号: <span id="kill-issue">--</span></div>
-                    <div class="pred-title">🚫 本期绝杀</div>
-                    <div class="pred-value kill-value" id="kill-type">--</div>
-                </div>
-                <div class="pred-box push-box">
-                    <div class="target-issue">目标期号: <span id="push-issue">--</span></div>
-                    <div class="pred-title">🀄 推荐三组</div>
-                    <div class="pred-value push-value" id="push-types">--</div>
-                </div>
+        </div>
+        
+        <!-- 预测结果面板 -->
+        <div class="prediction-area">
+            <div class="pred-box kill-box">
+                <div class="target-issue">目标期号: <span id="kill-issue">--</span></div>
+                <div class="pred-title">绝杀组合</div>
+                <div class="pred-value kill-value" id="kill-type">--</div>
             </div>
-            
-            <div class="list-title">📜 历史预测记录</div>
-            <div class="record-list" id="record-list"><div class="loading">加载中...</div></div>
-            <div class="list-title">📊 近期开奖结果</div>
-            <div class="record-list" id="draws-list"><div class="loading">加载中...</div></div>
+            <div class="pred-box push-box">
+                <div class="target-issue">目标期号: <span id="push-issue">--</span></div>
+                <div class="pred-title">推荐三组</div>
+                <div class="pred-value push-value" id="push-types">--</div>
+            </div>
         </div>
 
-        <!-- 开奖大厅 -->
-        <div id="lottery-view" style="display:none;">
+        <!-- 数据统计面板 -->
+        <div class="panel">
+            <div class="list-title" style="margin-bottom: 15px;">📈 战绩统计 (近20期)</div>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">总中奖</div>
+                    <div class="stat-val green" id="stat-total-win">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">总未中</div>
+                    <div class="stat-val red" id="stat-total-lose">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">当前连对</div>
+                    <div class="stat-val green" id="stat-streak-win">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">当前连错</div>
+                    <div class="stat-val red" id="stat-streak-lose">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="list-title">📜 历史预测记录 (近20期)</div>
+            <div class="list-container" id="record-list"><div class="loading">加载中...</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="list-title">📊 近期开奖结果</div>
+            <div class="list-container" id="draws-list"><div class="loading">加载中...</div></div>
+        </div>
+    </div>
+
+    <!-- 开奖大厅视图 -->
+    <div id="lottery-view" style="display:none;">
+        <div class="panel">
             <div class="list-title">📊 近 30 期开奖数据</div>
-            <div class="record-list" id="lottery-list"><div class="loading">数据加载中...</div></div>
+            <div class="list-container" id="lottery-list"><div class="loading">数据加载中...</div></div>
         </div>
     </div>
 </div>
 
 <script>
-    // 防调试与右键
+    // 防调试
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('keydown', e => {
         if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) || (e.ctrlKey && ['U', 'u'].includes(e.key))) { e.preventDefault(); return false; }
@@ -233,41 +296,24 @@ HTML_CONTENT = """
     let currentGame = 'btc28', currentMode = 'predict', syncInterval = null;
     let isFetching = false;
     
-    // 独立时钟变量
-    let globalNextTs = 0;
-    let globalTimeOffset = 0;
-    let isWaiting = false;
-
+    let globalNextTs = 0, globalTimeOffset = 0, isWaiting = false;
     const drawTimerEl = document.getElementById('draw-timer');
     const predictTimerEl = document.getElementById('predict-timer');
-    const syncDot = document.getElementById('sync-dot');
-    const syncText = document.getElementById('sync-text');
 
     function setSyncStatus(status) {
+        const syncDot = document.getElementById('sync-dot');
+        const syncText = document.getElementById('sync-text');
         syncDot.className = 'dot ' + status;
-        if(status === 'success') syncText.innerText = '同步成功';
-        else if(status === 'error') syncText.innerText = '同步失败';
-        else if(status === 'syncing') syncText.innerText = '同步中...';
-        else syncText.innerText = '未连接';
+        syncText.innerText = status === 'success' ? '同步成功' : (status === 'error' ? '同步失败' : (status === 'syncing' ? '同步中...' : '未连接'));
     }
 
-    // ================= 核心：独立本地时钟 (每秒跑) =================
+    // 独立时钟
     setInterval(() => {
-        if (currentMode !== 'predict') return;
-        
-        // 如果还没拿到服务器时间，先显示 ---
-        if (globalNextTs === 0) {
-            drawTimerEl.innerText = '--:--';
-            predictTimerEl.innerText = '--:--';
-            return;
-        }
-        
-        // 使用本地时间 + 偏移量 = 模拟服务器当前时间
+        if (currentMode !== 'predict' || globalNextTs === 0) return;
         const now = Math.floor(Date.now() / 1000) + globalTimeOffset;
         const remaining = globalNextTs - now;
         
         if (remaining > 0) {
-            // 倒计时进行中
             if (isWaiting) {
                 isWaiting = false;
                 drawTimerEl.classList.remove('waiting');
@@ -275,22 +321,19 @@ HTML_CONTENT = """
             }
             const m = Math.floor(remaining / 60).toString().padStart(2, '0');
             const s = (remaining % 60).toString().padStart(2, '0');
-            
             drawTimerEl.innerText = `${m}:${s}`;
             predictTimerEl.innerText = `${m}:${s}`;
         } else {
-            // 倒计时归零：变红字闪烁，等待开奖
             if (!isWaiting) {
                 isWaiting = true;
                 drawTimerEl.classList.add('waiting');
                 predictTimerEl.classList.add('waiting');
-                // 触发一次立即拉取，去拿最新结果
                 fetchPredictData(); 
             }
             drawTimerEl.innerText = '等待开奖...';
             predictTimerEl.innerText = '等待开奖...';
         }
-    }, 1000); // 每秒刷新
+    }, 1000);
 
     function switchMode(mode) {
         currentMode = mode;
@@ -308,7 +351,6 @@ HTML_CONTENT = """
         if (currentMode === 'lottery') fetchLottery(); else startPredictMode();
     }
 
-    // 获取开奖大厅数据
     function fetchLottery() {
         const el = document.getElementById('lottery-list');
         el.innerHTML = '<div class="loading">加载中...</div>'; setSyncStatus('syncing');
@@ -322,21 +364,15 @@ HTML_CONTENT = """
     }
 
     function startPredictMode() {
-        globalNextTs = 0; // 重置时钟，等待接口返回
-        isWaiting = false;
+        globalNextTs = 0; isWaiting = false;
         document.getElementById('record-list').innerHTML = '<div class="loading">计算中...</div>';
         document.getElementById('draws-list').innerHTML = '<div class="loading">加载中...</div>';
-        document.getElementById('kill-type').innerText = '--'; document.getElementById('push-types').innerText = '--'; 
-        document.getElementById('kill-issue').innerText = '--'; document.getElementById('push-issue').innerText = '--'; 
-        
         fetchPredictData();
         clearInterval(syncInterval); syncInterval = setInterval(fetchPredictData, 3000);
     }
 
-    // 获取预测数据 (3秒一次)
     function fetchPredictData() {
         if (isFetching) return; isFetching = true; setSyncStatus('syncing');
-        
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
         
@@ -356,24 +392,60 @@ HTML_CONTENT = """
     }
 
     function renderPredictData(data) {
-        // 更新预测结果与目标期号
         document.getElementById('kill-type').innerText = data.prediction.kill;
         document.getElementById('push-types').innerText = data.prediction.push.join(' | ');
         document.getElementById('kill-issue').innerText = data.next_issue;
         document.getElementById('push-issue').innerText = data.next_issue;
         
-        // 渲染预测记录
+        // 计算统计 (连对、连错、总对、总错)
+        let totalWin = 0, totalLose = 0, streakWin = 0, streakLose = 0;
+        let currentStreakType = null; // 'win' or 'lose'
+        let currentStreakCount = 0;
+        
+        // 历史记录是按时间倒序的 (最新在最前面)
+        let records = data.predict_records || [];
+        
+        // 先统计总对总错
+        records.forEach(r => {
+            if (r.status === 'settled') {
+                if (r.is_win) totalWin++;
+                else totalLose++;
+            }
+        });
+
+        // 统计连对连错 (从最新一期开始算)
+        for (let i = 0; i < records.length; i++) {
+            let r = records[i];
+            if (r.status !== 'settled') continue; // 跳过未结算的
+            
+            if (currentStreakType === null) {
+                currentStreakType = r.is_win ? 'win' : 'lose';
+                currentStreakCount = 1;
+            } else {
+                if (r.is_win && currentStreakType === 'win') currentStreakCount++;
+                else if (!r.is_win && currentStreakType === 'lose') currentStreakCount++;
+                else break; // 断了就停止
+            }
+        }
+        
+        streakWin = currentStreakType === 'win' ? currentStreakCount : 0;
+        streakLose = currentStreakType === 'lose' ? currentStreakCount : 0;
+
+        document.getElementById('stat-total-win').innerText = totalWin;
+        document.getElementById('stat-total-lose').innerText = totalLose;
+        document.getElementById('stat-streak-win').innerText = streakWin;
+        document.getElementById('stat-streak-lose').innerText = streakLose;
+
+        // 渲染记录列表
         let recordHtml = '';
-        if(data.predict_records && data.predict_records.length > 0) {
-            data.predict_records.slice().reverse().forEach(r => {
-                // 只要实际结果不是杀号，就是中奖
+        if(records.length > 0) {
+            records.forEach(r => {
                 let statusTag = r.status === 'pending' ? '<span class="pending-tag">等待开奖</span>' : (r.is_win ? '<span class="win-tag">🀄 中奖</span>' : '<span class="lose-tag">未中</span>');
                 let actualText = r.actual ? `开: ${r.actual}` : '开: --';
-                recordHtml += `<div class="record-item"><div class="record-header"><span>期号: ${r.issue}</span>${statusTag}</div><div class="record-body"><span>杀: <span style="color:#ef4444">${r.kill}</span></span><span>推: <span style="color:#10b981">${r.push.join(',')}</span></span><span>${actualText}</span></div></div>`;
+                let killColor = r.is_win ? 'color:var(--text-muted)' : 'color:var(--red)';
+                recordHtml += `<div class="record-item"><div class="record-header"><span>期号: ${r.issue}</span>${statusTag}</div><div class="record-body"><span>杀: <span style="${killColor}">${r.kill}</span></span><span>推: <span style="color:var(--green)">${r.push.join(',')}</span></span><span>${actualText}</span></div></div>`;
             });
-        } else { 
-            recordHtml = '<div class="loading">暂无预测记录</div>'; 
-        }
+        } else { recordHtml = '<div class="loading">暂无记录</div>'; }
         document.getElementById('record-list').innerHTML = recordHtml;
 
         // 渲染开奖列表
@@ -381,7 +453,7 @@ HTML_CONTENT = """
         data.draws.forEach(d => { drawsHtml += `<div class="lottery-item"><div class="lottery-issue">${d.issue}<br>${d.time}</div><div class="lottery-raw">${d.raw}</div><div class="lottery-type type-${d.type}">${d.type}</div></div>`; });
         document.getElementById('draws-list').innerHTML = drawsHtml;
 
-        // 更新全局时间
+        // 更新倒计时
         globalNextTs = data.next_ts;
         globalTimeOffset = data.server_time - Math.floor(Date.now() / 1000);
     }
@@ -409,10 +481,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         query = parse_qs(parsed_path.query)
         if '_s' not in query:
-            return False, "Forbidden"
+            return False
         if query['_s'][0] != base64.b64encode(("secure_28_web_2024").encode()).decode():
-            return False, "Forbidden"
-        return True, ""
+            return False
+        return True
 
     def get_api_data(self, game_type):
         now = time.time()
@@ -435,8 +507,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
 
         # 安全验证
-        is_valid, _ = self.verify_security()
-        if not is_valid:
+        if not self.verify_security():
             self.send_response(403)
             self.end_headers()
             return
@@ -455,9 +526,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"payload": b64_str}).encode('utf-8'))
             except Exception as e:
                 self.send_response(500)
-                self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
                 
         elif parsed_path.startswith('/api/proxy/'):
             game_type = parsed_path.split('/')[-1]
@@ -478,12 +547,11 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 if game_type not in history: history[game_type] = []
                 game_history = history[game_type]
                 
-                # 【核心修复】如果服务器重启导致历史记录丢失，立刻根据现有的 30 期数据回测补全
+                # 【核心修复】回填补全
                 if len(game_history) < 5:
                     game_history = []
                     for i in range(len(draws)-1, 0, -1):
                         past_draw = draws[i]
-                        # 用之前的算法倒推预测（这里简单调用算法接口）
                         if game_type == 'btc28': past_pred = predict_btc28(draws[i:])
                         elif game_type == 'fenfen28': past_pred = predict_fenfen28(draws[i:])
                         else: past_pred = predict_JND(draws[i:])
@@ -497,7 +565,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                             "status": "settled"
                         })
                 
-                # 结算上一期预测
+                # 结算上一期
                 if game_history:
                     last_record = game_history[-1]
                     if last_record["status"] == "pending":
@@ -505,10 +573,12 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                         last_record["is_win"] = (draws[0]['type'] != last_record["kill"])
                         last_record["status"] = "settled"
                 
-                # 生成下一期预测
+                # 生成新一期
                 if not game_history or game_history[-1]["issue"] != latest_issue:
                     game_history.append({"issue": latest_issue, "kill": prediction["kill"], "push": prediction["push"], "actual": None, "is_win": None, "status": "pending"})
-                    if len(game_history) > 50: game_history.pop(0)
+                
+                # 【只保存最近 20 期】
+                game_history = game_history[-20:]
                 
                 save_history({game_type: game_history})
                 
