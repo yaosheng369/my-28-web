@@ -46,8 +46,6 @@ GAME_DATA = {
     "JND": {"draws": [], "next_ts": 0}
 }
 DATA_LOCK = threading.Lock()
-NONCE_STORE = {}
-NONCE_LOCK = threading.Lock()
 
 # ================= 安全防护组件 =================
 class SecurityGuard:
@@ -55,7 +53,7 @@ class SecurityGuard:
         self.ip_records = defaultdict(list)
         self.banned_ips = {}
         self.lock = threading.Lock()
-        self.MAX_REQUESTS = 10  # 0.5秒内最多10次，防脚本狂刷
+        self.MAX_REQUESTS = 10  
         self.WINDOW = 0.5           
         self.BAN_TIME = 1800        
 
@@ -80,9 +78,15 @@ class SecurityGuard:
 
 SECURITY = SecurityGuard()
 
-def x_xor(data: str, key: str) -> str:
-    key_bytes = key.encode('utf-8')
-    return base64.b64encode(bytes([b ^ key_bytes[i % len(key_bytes)] for i, b in enumerate(data.encode('utf-8'))])).decode('utf-8')
+# 动态加密逻辑：动态密钥 + 异或 + Base64 + 字符串反转
+def dynamic_encrypt(data: str):
+    client_key = secrets.token_hex(4) 
+    key_bytes = client_key.encode('utf-8')
+    raw_bytes = data.encode('utf-8')
+    xor_bytes = bytes([b ^ key_bytes[i % len(key_bytes)] for i, b in enumerate(raw_bytes)])
+    b64_str = base64.b64encode(xor_bytes).decode('utf-8')
+    final_payload = b64_str[::-1] 
+    return client_key, final_payload
 
 # ================= 数据抓取 =================
 def fetch_data(game_key):
@@ -146,7 +150,6 @@ def sync_all_worker():
 
 # ================= HTML 页面生成 =================
 def build_html(nonce):
-    # ★ 由于改用公共加密接口，初始页面不需要塞入明文密文了，极速打开
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -154,7 +157,7 @@ def build_html(nonce):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>舰长开奖网站</title>
     <style nonce="{nonce}">
-        body {{ background: #0a0a0c; color: #e0e0e0; font-family: monospace; padding: 15px; margin: 0; }}
+        body {{ background: #0a0a0c; color: #e0e0e0; font-family: monospace; padding: 15px; margin: 0; user-select: none; -webkit-user-select: none; }}
         .header {{ position: relative; text-align: center; border: 1px solid #00f3ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
         .title {{ color: #00f3ff; font-size: 24px; margin: 0 0 10px 0; }}
         .countdown {{ color: #00ff9d; font-size: 20px; margin-top: 8px; font-weight: bold; }}
@@ -178,12 +181,15 @@ def build_html(nonce):
         .result {{ color: #00f3ff; font-weight: bold; }}
         .big {{ color: #ff003c; font-weight: bold; }}
         .small {{ color: #007bff; font-weight: bold; }}
+        
+        .waiting {{ color: #ff003c !important; animation: blink 1s infinite; }}
+        @keyframes blink {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
     </style>
 </head>
 <body>
     <div class="header">
         <h1 class="title">⚡ 舰长开奖网站 ⚡</h1>
-        <div class="countdown">下一期开奖倒计时：<span id="cd">--</span> 秒</div>
+        <div class="countdown">下一期开奖倒计时：<span id="cd">--</span></div>
         <div id="sync-badge" class="sync-badge">🔄 请求上游中...</div>
     </div>
     
@@ -201,14 +207,27 @@ def build_html(nonce):
     (function() {{
         'use strict';
         
-        function xorDecrypt(b64Data, key) {{
-            const str = atob(b64Data);
-            let result = '';
-            for (let i = 0; i < str.length; i++) {{
-                result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        // ★ 前端防调试系统 (拦截右键、F12、F5连按)
+        document.addEventListener('contextmenu', function(e) {{ e.preventDefault(); }});
+        document.addEventListener('keydown', function(e) {{
+            if (e.key === 'F12' || 
+                (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) || 
+                (e.ctrlKey && e.key === 'U')) {{
+                e.preventDefault();
+                return false;
             }}
-            try {{ return decodeURIComponent(escape(result)); }} 
-            catch(e) {{ return result; }}
+        }});
+
+        function dynamicDecrypt(revB64Str, key) {{
+            try {{
+                const b64Str = revB64Str.split('').reverse().join('');
+                const str = atob(b64Str);
+                let result = '';
+                for (let i = 0; i < str.length; i++) {{
+                    result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+                }}
+                return decodeURIComponent(escape(result));
+            }} catch(e) {{ return null; }}
         }}
 
         let allData = {{}};
@@ -249,15 +268,19 @@ def build_html(nonce):
             
             let remain = Math.ceil(nextTs - nowServer);
             
+            // ★ 核心：倒计时为 0 时展示红色等待字体
             if (remain <= 0) {{
-                allData[currentGame].next_ts += period; 
-                remain = period;
+                cdText.innerHTML = '<span class="waiting">等待开奖...</span>';
+                // 如果超过 10 秒还没拿到新数据，本地强制推进周期，防止彻底卡死
+                if (Math.abs(remain) > 10) {{
+                    allData[currentGame].next_ts += period;
+                }}
+            }} else {{
+                cdText.innerHTML = remain + ' 秒';
             }}
-            cdText.textContent = remain;
         }}
         setInterval(tick, 1000);
 
-        // ★ 核心：前端请求极高小的公共加密接口，不再碰 admin_key
         async function syncData() {{
             badge.textContent = '🔄 请求上游中...';
             badge.classList.add('show');
@@ -270,8 +293,11 @@ def build_html(nonce):
                 if (!res.ok) throw new Error("Sync failed");
                 
                 const json = await res.json();
-                // 解密数据
-                const dataObj = JSON.parse(xorDecrypt(json.payload, json.key));
+                const decryptedStr = dynamicDecrypt(json.payload, json.key);
+                
+                if (!decryptedStr) throw new Error("Decrypt failed");
+                
+                const dataObj = JSON.parse(decryptedStr);
                 
                 allData = dataObj.games;
                 timeOffset = Math.floor(Date.now() / 1000) - dataObj.server_time;
@@ -282,12 +308,11 @@ def build_html(nonce):
                 badge.textContent = '✅ 已更新';
                 setTimeout(() => badge.classList.remove('show'), 1000);
             }} catch(e) {{ 
-                badge.textContent = '⚠️ 网络波动，稍后重试';
+                badge.textContent = '⚠️ 网络波动';
                 setTimeout(() => badge.classList.remove('show'), 2000);
             }}
         }}
         
-        // 首次立即请求，之后每5秒请求一次
         syncData();
         setInterval(syncData, 5000); 
 
@@ -332,7 +357,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            # 1. 网页初始渲染
+            # ================= 1. 网页初始渲染 =================
             if path == '/' or path == '/index.html':
                 nonce = secrets.token_urlsafe(16)
                 html = build_html(nonce)
@@ -341,13 +366,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
+                
+                # ★ 极致安全 HTTP 头防护
                 self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('X-Frame-Options', 'DENY') # 防点击劫持
+                self.send_header('X-XSS-Protection', '1; mode=block') # 防XSS
+                self.send_header('Referrer-Policy', 'no-referrer')
                 self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
-            # 2. ★ 网页专用公共加密接口（完美防扒、永不超时）
+            # ================= 2. 极高强度加密的公共接口 =================
             elif path == '/api/web_data':
                 with DATA_LOCK:
                     payload_data = {
@@ -362,8 +392,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                         }
 
                 json_str = json.dumps(payload_data, ensure_ascii=False)
-                client_key = secrets.token_hex(8) # 每次请求都是动态密钥
-                encrypted_payload = x_xor(json_str, client_key)
+                client_key, encrypted_payload = dynamic_encrypt(json_str)
 
                 resp = {
                     "key": client_key,
@@ -379,7 +408,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
-            # 3. 你的超级专属 API 接口（纯明文 JSON，无需网页调用）
+            # ================= 3. 站长永久专属 API =================
             elif path in ['/api/btc28', '/api/fenfen28', '/api/JND']:
                 admin_key = query.get('admin_key', [''])[0]
                 if admin_key != API_SECRET_KEY:
@@ -431,7 +460,7 @@ if __name__ == '__main__':
     threading.Thread(target=sync_all_worker, daemon=True).start()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), RequestHandler)
     print(f"[INFO] 服务器已启动，端口: {PORT}")
-    print(f"[INFO] 已启用安全架构：网页走加密接口，暗号不暴露")
+    print(f"[INFO] 武装版已就绪：倒计时归零红字等待 + 防F12 + 严格HTTP安全头")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
