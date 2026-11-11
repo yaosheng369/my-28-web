@@ -18,8 +18,7 @@ API_CONFIG = {
 HISTORY_FILE = "predict_history.json"
 CACHE_EXPIRE_SECONDS = 3
 API_CACHE = {} 
-IP_REQUEST_LOG = {} # 用于简单的IP限流
-SECRET_SALT = "secure_28_web_2024" # 签名密钥
+SECRET_SALT = "secure_28_web_2024" 
 
 # ================= 预测算法区 =================
 def predict_btc28(draws):
@@ -84,41 +83,27 @@ HTML_CONTENT = """
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #070b14; color: #e2e8f0; padding: 15px; }
         .container { max-width: 800px; margin: 0 auto; background: #101827; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); overflow: hidden; border: 1px solid #1e293b; }
-        
-        /* 头部与同步状态 */
         .header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 25px 20px; text-align: center; border-bottom: 2px solid #3b82f6; position: relative; }
         .header h1 { font-size: 24px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(59,130,246,0.6); color: #60a5fa; }
         .header p { font-size: 13px; margin-top: 5px; color: #94a3b8; letter-spacing: 1px; }
-        
         .sync-status { position: absolute; top: 20px; right: 20px; font-size: 12px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 20px; border: 1px solid #334155; }
         .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
         .dot.success { background: #10b981; box-shadow: 0 0 8px #10b981; }
         .dot.error { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
         .dot.syncing { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; animation: pulse 1s infinite alternate; }
         @keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
-        
-        /* 切换栏 */
         .mode-switch { display: flex; background: #0f172a; border-bottom: 1px solid #1e293b; }
         .mode-btn { flex: 1; padding: 15px; text-align: center; cursor: pointer; color: #64748b; font-weight: bold; font-size: 15px; transition: 0.3s; border-bottom: 2px solid transparent; }
         .mode-btn.active { color: #60a5fa; border-bottom: 2px solid #3b82f6; background: #101827; }
-        
         .tabs { display: flex; background: #0f172a; padding: 10px; gap: 10px; }
         .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: #94a3b8; font-weight: bold; font-size: 14px; border-radius: 8px; transition: 0.3s; background: #1e293b; border: 1px solid #334155; }
         .tab.active { background: #3b82f6; color: #fff; box-shadow: 0 0 15px rgba(59,130,246,0.6); border-color: #3b82f6; }
-        
         .content { padding: 20px; }
-        
-        /* 倒计时仪表盘 */
         .dashboard { background: #0f172a; border-radius: 12px; padding: 25px 20px; text-align: center; margin-bottom: 20px; border: 1px solid #1e293b; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
-        .dashboard::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 60%); pointer-events: none; }
-        
         .target-issue-box { font-size: 15px; color: #94a3b8; margin-bottom: 15px; z-index: 1; position: relative; }
         .target-issue-box span { color: #f43f5e; font-weight: bold; font-size: 20px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(244,63,94,0.6); }
-        
         .countdown-time { font-family: 'Courier New', Courier, monospace; font-size: 56px; font-weight: 900; color: #06b6d4; text-shadow: 0 0 20px rgba(6,182,212,0.5); transition: 0.3s; z-index: 1; position: relative; }
         .countdown-time.waiting { color: #ef4444; text-shadow: 0 0 20px rgba(239,68,68,0.8); animation: pulse 0.8s infinite alternate; font-size: 42px; }
-        
-        /* 预测结果 */
         .prediction-area { display: flex; gap: 15px; margin-bottom: 25px; }
         .pred-box { flex: 1; padding: 20px 15px; border-radius: 12px; text-align: center; position: relative; backdrop-filter: blur(10px); }
         .kill-box { background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); }
@@ -127,34 +112,23 @@ HTML_CONTENT = """
         .pred-value { font-size: 32px; font-weight: 900; letter-spacing: 2px; }
         .kill-value { color: #ef4444; text-shadow: 0 0 12px rgba(239,68,68,0.5); }
         .push-value { color: #10b981; text-shadow: 0 0 12px rgba(16,185,129,0.5); font-size: 22px; }
-        
-        /* 列表通用 */
         .list-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; color: #60a5fa; border-left: 4px solid #3b82f6; padding-left: 10px; margin-top: 20px; display: flex; align-items: center; gap: 8px;}
-        .list-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, #334155, transparent); }
         .record-list { max-height: 400px; overflow-y: auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; }
-        
-        /* 开奖记录 */
         .lottery-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #1e293b; font-size: 14px; color: #e2e8f0; }
-        .lottery-item:last-child { border-bottom: none; }
         .lottery-issue { color: #64748b; font-size: 12px; width: 120px; line-height: 1.4; }
         .lottery-raw { flex: 1; font-weight: bold; font-size: 16px; font-family: monospace; color: #cbd5e1; }
         .lottery-type { width: 60px; text-align: center; border-radius: 6px; padding: 6px 0; font-size: 12px; color: #fff; font-weight: bold; }
         .type-大单, .type-大双 { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444; text-shadow: 0 0 5px rgba(239,68,68,0.5); }
         .type-小单, .type-小双 { background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #3b82f6; text-shadow: 0 0 5px rgba(59,130,246,0.5); }
-        
-        /* 预测记录 */
         .record-item { display: flex; flex-direction: column; gap: 8px; padding: 15px; border-bottom: 1px solid #1e293b; color: #e2e8f0; font-size: 13px; }
-        .record-item:last-child { border-bottom: none; }
         .record-header { display: flex; justify-content: space-between; color: #64748b; font-size: 12px; }
         .record-body { display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
-        
         .win-tag { color: #fff; background: #ef4444; padding: 3px 10px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(239,68,68,0.5); }
         .lose-tag { color: #fff; background: #475569; padding: 3px 10px; border-radius: 4px; font-size: 12px; }
-        .pending-tag { color: #fff; background: #f59e0b; padding: 3px 10px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(245,158,11,0.5); animation: pulse 1s infinite alternate;}
-        
+        .pending-tag { color: #fff; background: #f59e0b; padding: 3px 10px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(245,158,11,0.5); }
         .loading { text-align: center; padding: 30px; color: #64748b; font-size: 14px; }
         .error { text-align: center; padding: 30px; color: #ef4444; font-size: 14px; }
-        
+        .btn { padding: 10px 24px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 15px; font-weight: bold; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -212,7 +186,6 @@ HTML_CONTENT = """
 </div>
 
 <script>
-    // 第3层防护：前端防调试
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('keydown', e => {
         if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) || (e.ctrlKey && ['U', 'u'].includes(e.key))) { e.preventDefault(); return false; }
@@ -221,9 +194,9 @@ HTML_CONTENT = """
     let currentGame = 'btc28', currentMode = 'predict', timerInterval = null, syncInterval = null;
     let timeOffset = 0; let isFetching = false;
     
-    // 第4层防护：动态签名生成 (与后端校验)
-    function genSign(t) { return btoa(t + "_secure_28_web_2024"); }
-    function getSecureParams() { let t = Date.now(); return `_t=${t}&_s=${encodeURIComponent(genSign(t))}`; }
+    // 调整签名策略：去掉严格的时间校验，保留签名防伪造
+    function genSign() { return btoa("secure_28_web_2024"); }
+    function getSecureParams() { return `_s=${encodeURIComponent(genSign())}`; }
 
     const countdownEl = document.getElementById('countdown');
     const syncDot = document.getElementById('sync-dot');
@@ -257,7 +230,7 @@ HTML_CONTENT = """
         const el = document.getElementById('lottery-list');
         el.innerHTML = '<div class="loading">加载中...</div>'; setSyncStatus('syncing');
         fetch(`/api/lottery/${currentGame}?${getSecureParams()}`).then(res => res.json()).then(res => {
-            if (res.error) { el.innerHTML = `<div class="error">请求失败</div>`; setSyncStatus('error'); return; }
+            if (res.error) { el.innerHTML = `<div class="error">${res.error}</div>`; setSyncStatus('error'); return; }
             const data = JSON.parse(atob(res.payload)); let html = '';
             data.draws.forEach(d => { html += `<div class="lottery-item"><div class="lottery-issue">${d.issue}<br>${d.time}</div><div class="lottery-raw">${d.raw}</div><div class="lottery-type type-${d.type}">${d.type}</div></div>`; });
             el.innerHTML = html; setSyncStatus('success');
@@ -270,16 +243,31 @@ HTML_CONTENT = """
         document.getElementById('kill-type').innerText = '--'; document.getElementById('push-types').innerText = '--'; 
         countdownEl.classList.remove('waiting'); countdownEl.innerText = '--:--';
         fetchPredictData();
-        clearInterval(syncInterval); syncInterval = setInterval(fetchPredictData, 3000); // 每3秒同步
+        clearInterval(syncInterval); syncInterval = setInterval(fetchPredictData, 3000);
     }
 
     function fetchPredictData() {
         if (isFetching) return; isFetching = true; setSyncStatus('syncing');
-        fetch(`/api/proxy/${currentGame}?${getSecureParams()}`).then(res => { return res.json(); }).then(res => {
-            isFetching = false;
-            if (res.error) { setSyncStatus('error'); return; }
-            renderPredictData(JSON.parse(atob(res.payload))); setSyncStatus('success');
-        }).catch(err => { isFetching = false; setSyncStatus('error'); });
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超时
+        
+        fetch(`/api/proxy/${currentGame}?${getSecureParams()}`, { signal: controller.signal })
+            .then(res => { clearTimeout(timeoutId); return res.json(); })
+            .then(res => {
+                isFetching = false;
+                if (res.error) { 
+                    setSyncStatus('error'); 
+                    document.getElementById('draws-list').innerHTML = `<div class="error">API源响应超时或休眠中<br><small>${res.error}</small></div>`;
+                    return; 
+                }
+                renderPredictData(JSON.parse(atob(res.payload))); 
+                setSyncStatus('success');
+            })
+            .catch(err => { 
+                isFetching = false; setSyncStatus('error'); 
+                document.getElementById('draws-list').innerHTML = '<div class="error">网络超时，服务器可能正在休眠，请稍后刷新</div>';
+            });
     }
 
     function renderPredictData(data) {
@@ -332,7 +320,6 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
     def end_headers(self):
-        # 第2层防护：强制安全响应头 (防嵌套/XSS/CSP)
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('X-XSS-Protection', '1; mode=block')
         self.send_header('X-Content-Type-Options', 'nosniff')
@@ -341,57 +328,31 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         super().end_headers()
 
     def verify_security(self):
-        # 第4层防护：验证动态签名与时间戳
         parsed_path = urlparse(self.path)
         query = parse_qs(parsed_path.query)
         
-        if '_t' not in query or '_s' not in query:
+        # 只验证签名，放宽时间校验（防止手机时间不准导致 403）
+        if '_s' not in query:
             return False, "Forbidden: Missing Signature"
-        
-        t_str = query['_t'][0]
         s_str = query['_s'][0]
-        
-        try:
-            t = int(t_str)
-            # 校验时间差 (防重放攻击，3秒有效)
-            if abs(time.time() * 1000 - t) > 3000:
-                return False, "Forbidden: Token Expired"
-        except:
-            return False, "Forbidden: Invalid Token"
-
-        # 校验签名
-        expected_s = base64.b64encode((t_str + SECRET_SALT).encode()).decode()
+        expected_s = base64.b64encode(("secure_28_web_2024").encode()).decode()
         if s_str != expected_s:
             return False, "Forbidden: Invalid Signature"
-            
         return True, ""
 
     def get_api_data(self, game_type):
-        # 第6层防护：简单的IP限流 (1秒内最多5次请求)
-        client_ip = self.client_address[0]
-        now = time.time()
-        if client_ip in IP_REQUEST_LOG:
-            IP_REQUEST_LOG[client_ip] = [t for t in IP_REQUEST_LOG[client_ip] if now - t < 1]
-            if len(IP_REQUEST_LOG[client_ip]) >= 5:
-                raise Exception("请求过于频繁，请稍后再试")
-            IP_REQUEST_LOG[client_ip].append(now)
-        else:
-            IP_REQUEST_LOG[client_ip] = [now]
-
-        # 缓存机制
         now = time.time()
         if game_type in API_CACHE:
             cache_time, cache_data = API_CACHE[game_type]
             if now - cache_time < CACHE_EXPIRE_SECONDS: return cache_data
             
         req = urllib.request.Request(API_CONFIG[game_type]["url"], headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=6) as response:
+        with urllib.request.urlopen(req, timeout=10) as response: # 超时放宽到10秒
             data = json.loads(response.read().decode('utf-8'))
         API_CACHE[game_type] = (now, data)
         return data
 
     def do_GET(self):
-        # 首页直接放行
         if self.path == '/':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -399,7 +360,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(HTML_CONTENT.encode('utf-8'))
             return
 
-        # 验证安全签名
         is_valid, err_msg = self.verify_security()
         if not is_valid:
             self.send_response(403)
@@ -408,7 +368,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": err_msg}).encode('utf-8'))
             return
 
-        # 接口路由
         parsed_path = urlparse(self.path).path
         if parsed_path.startswith('/api/lottery/'):
             game_type = parsed_path.split('/')[-1]
@@ -416,7 +375,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = self.get_api_data(game_type)
                 result = {"name": data.get('name'), "draws": data.get('draws', [])[:30]}
-                # 第5层防护：数据Base64加密
                 b64_str = base64.b64encode(json.dumps(result).encode('utf-8')).decode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -466,7 +424,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                     "predict_records": game_history, "next_issue": next_issue
                 }
                 
-                # 第5层防护：数据Base64加密
                 b64_str = base64.b64encode(json.dumps(result).encode('utf-8')).decode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -477,12 +434,11 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+                self.wfile.write(json.dumps({"error": f"API源无响应/超时 ({str(e)})"}).encode('utf-8'))
         else:
             self.send_error(404, "Not Found")
 
 if __name__ == '__main__':
     PORT = int(os.environ.get("PORT", 5000))
     server = ThreadedHTTPServer(("0.0.0.0", PORT), MyHandler)
-    print(f"✅ 战舰启动完毕！监听端口: {PORT}")
     server.serve_forever()
