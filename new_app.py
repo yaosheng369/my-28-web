@@ -74,7 +74,7 @@ def save_history(history):
     with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
-# ================= 前端 HTML (赛博朋克科技风) =================
+# ================= 前端 HTML (赛博朋克) =================
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -99,12 +99,9 @@ HTML_CONTENT = """
             linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
             background-size: 30px 30px; padding: 15px; }
         
-        /* 扫描线特效 */
         body::after { content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 2px, 3px 100%; pointer-events: none; z-index: 9999; opacity: 0.5;}
         
         .container { max-width: 800px; margin: 0 auto; position: relative; z-index: 10; }
-        
-        /* 头部与状态 */
         .header { text-align: center; padding: 20px 0; position: relative; margin-bottom: 20px; }
         .header h1 { font-size: 28px; letter-spacing: 5px; color: var(--cyan); text-shadow: 0 0 10px var(--cyan), 0 0 20px rgba(0, 243, 255, 0.5); font-weight: 900; }
         .header p { font-size: 12px; letter-spacing: 2px; color: var(--text-muted); margin-top: 5px; text-transform: uppercase; }
@@ -116,43 +113,35 @@ HTML_CONTENT = """
         .dot.syncing { background: #f59e0b; box-shadow: 0 0 10px #f59e0b; animation: pulse 1s infinite alternate; }
         @keyframes pulse { from { opacity: 0.4; } to { opacity: 1; } }
         
-        /* 模式切换 */
         .mode-switch { display: flex; gap: 10px; margin-bottom: 20px; }
         .mode-btn { flex: 1; padding: 15px; text-align: center; cursor: pointer; color: var(--text-muted); font-weight: bold; font-size: 15px; background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; transition: 0.3s; backdrop-filter: blur(10px); }
         .mode-btn.active { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 15px rgba(0, 243, 255, 0.3); background: rgba(0, 243, 255, 0.05); }
         
-        /* 游戏分类 */
         .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
         .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; color: var(--text-muted); font-size: 14px; background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 6px; transition: 0.3s; font-weight: bold; }
         .tab.active { color: #fff; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 20px rgba(0, 243, 255, 0.6); }
 
-        /* 科技面板通用 */
         .panel { background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; backdrop-filter: blur(10px); box-shadow: inset 0 0 20px rgba(0,0,0,0.5); position: relative; }
         .panel::before { content: ''; position: absolute; top: 0; left: 0; width: 20px; height: 2px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
         .panel::after { content: ''; position: absolute; bottom: 0; right: 0; width: 20px; height: 2px; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
 
-        /* 倒计时区 */
         .dashboard { display: flex; gap: 15px; }
         .timer-box { flex: 1; text-align: center; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); }
         .timer-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 1px; }
         .timer-val { font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 900; color: var(--cyan); text-shadow: 0 0 15px rgba(0, 243, 255, 0.6); }
         .timer-val.waiting { color: var(--red); text-shadow: 0 0 20px var(--red); animation: pulse 0.5s infinite alternate; font-size: 24px; display: flex; align-items: center; justify-content: center; height: 45px;}
 
-        /* 预测区 */
         .prediction-area { display: flex; gap: 15px; margin-bottom: 20px; }
         .pred-box { flex: 1; padding: 20px 15px; text-align: center; border-radius: 12px; position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;}
         .kill-box { background: rgba(255, 0, 60, 0.05); border: 1px solid rgba(255, 0, 60, 0.3); box-shadow: inset 0 0 30px rgba(255, 0, 60, 0.1); }
         .push-box { background: rgba(0, 255, 136, 0.05); border: 1px solid rgba(0, 255, 136, 0.3); box-shadow: inset 0 0 30px rgba(0, 255, 136, 0.1); }
-        
         .target-issue { font-size: 12px; color: #fff; background: rgba(0,0,0,0.6); padding: 4px 12px; border-radius: 20px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); letter-spacing: 1px;}
         .target-issue span { color: var(--cyan); font-weight: bold; }
-        
         .pred-title { font-size: 14px; margin-bottom: 10px; color: var(--text-muted); letter-spacing: 2px; }
         .pred-value { font-size: 36px; font-weight: 900; letter-spacing: 3px; }
         .kill-value { color: var(--red); text-shadow: 0 0 15px rgba(255, 0, 60, 0.6); }
         .push-value { color: var(--green); text-shadow: 0 0 15px rgba(0, 255, 136, 0.6); font-size: 22px; }
 
-        /* 数据统计面板 */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
         .stat-item { text-align: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
         .stat-label { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
@@ -160,11 +149,9 @@ HTML_CONTENT = """
         .stat-val.green { color: var(--green); text-shadow: 0 0 10px rgba(0,255,136,0.4); }
         .stat-val.red { color: var(--red); text-shadow: 0 0 10px rgba(255,0,60,0.4); }
 
-        /* 列表通用 */
         .list-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; color: var(--cyan); border-left: 4px solid var(--cyan); padding-left: 10px; display: flex; align-items: center; gap: 8px; letter-spacing: 1px;}
         .list-container { max-height: 400px; overflow-y: auto; border-radius: 8px; }
         
-        /* 开奖列表 */
         .lottery-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
         .lottery-item:last-child { border-bottom: none; }
         .lottery-issue { color: var(--text-muted); font-size: 12px; width: 100px; line-height: 1.4; font-family: monospace; }
@@ -173,18 +160,17 @@ HTML_CONTENT = """
         .type-大单, .type-大双 { background: rgba(255, 0, 60, 0.15); color: var(--red); border: 1px solid rgba(255,0,60,0.3); }
         .type-小单, .type-小双 { background: rgba(0, 243, 255, 0.15); color: var(--cyan); border: 1px solid rgba(0,243,255,0.3); }
         
-        /* 预测记录 */
         .record-item { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
         .record-header { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; font-family: monospace; }
         .record-body { display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
         
-        .win-tag { color: var(--green); border: 1px solid var(--green); padding: 2px 8px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,136,0.3); }
-        .lose-tag { color: var(--text-muted); border: 1px solid var(--text-muted); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        /* 中奖 红色字体，未中 深黑色字体 */
+        .win-tag { color: var(--red); border: 1px solid var(--red); padding: 2px 8px; border-radius: 4px; font-size: 12px; box-shadow: 0 0 10px rgba(255,0,60,0.3); font-weight: bold;}
+        .lose-tag { color: #334155; background: #0f172a; border: 1px solid #334155; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
         .pending-tag { color: #f59e0b; border: 1px solid #f59e0b; padding: 2px 8px; border-radius: 4px; font-size: 12px; animation: pulse 1s infinite alternate;}
         
         .loading { text-align: center; padding: 30px; color: var(--cyan); font-size: 14px; font-family: monospace; letter-spacing: 2px;}
         .error { text-align: center; padding: 30px; color: var(--red); font-size: 14px; }
-        
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 2px; }
@@ -212,10 +198,7 @@ HTML_CONTENT = """
         <div class="tab" data-game="JND" onclick="switchGame('JND')">加拿大28</div>
     </div>
 
-    <!-- 预测视图 -->
     <div id="predict-view" style="display:block;">
-        
-        <!-- 倒计时面板 -->
         <div class="panel">
             <div class="dashboard">
                 <div class="timer-box">
@@ -229,7 +212,6 @@ HTML_CONTENT = """
             </div>
         </div>
         
-        <!-- 预测结果面板 -->
         <div class="prediction-area">
             <div class="pred-box kill-box">
                 <div class="target-issue">目标期号: <span id="kill-issue">--</span></div>
@@ -243,7 +225,6 @@ HTML_CONTENT = """
             </div>
         </div>
 
-        <!-- 数据统计面板 -->
         <div class="panel">
             <div class="list-title" style="margin-bottom: 15px;">📈 战绩统计 (近20期)</div>
             <div class="stats-grid">
@@ -277,7 +258,6 @@ HTML_CONTENT = """
         </div>
     </div>
 
-    <!-- 开奖大厅视图 -->
     <div id="lottery-view" style="display:none;">
         <div class="panel">
             <div class="list-title">📊 近 30 期开奖数据</div>
@@ -287,7 +267,6 @@ HTML_CONTENT = """
 </div>
 
 <script>
-    // 防调试
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('keydown', e => {
         if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) || (e.ctrlKey && ['U', 'u'].includes(e.key))) { e.preventDefault(); return false; }
@@ -295,8 +274,8 @@ HTML_CONTENT = """
 
     let currentGame = 'btc28', currentMode = 'predict', syncInterval = null;
     let isFetching = false;
-    
     let globalNextTs = 0, globalTimeOffset = 0, isWaiting = false;
+    
     const drawTimerEl = document.getElementById('draw-timer');
     const predictTimerEl = document.getElementById('predict-timer');
 
@@ -307,7 +286,6 @@ HTML_CONTENT = """
         syncText.innerText = status === 'success' ? '同步成功' : (status === 'error' ? '同步失败' : (status === 'syncing' ? '同步中...' : '未连接'));
     }
 
-    // 独立时钟
     setInterval(() => {
         if (currentMode !== 'predict' || globalNextTs === 0) return;
         const now = Math.floor(Date.now() / 1000) + globalTimeOffset;
@@ -397,15 +375,11 @@ HTML_CONTENT = """
         document.getElementById('kill-issue').innerText = data.next_issue;
         document.getElementById('push-issue').innerText = data.next_issue;
         
-        // 计算统计 (连对、连错、总对、总错)
-        let totalWin = 0, totalLose = 0, streakWin = 0, streakLose = 0;
-        let currentStreakType = null; // 'win' or 'lose'
-        let currentStreakCount = 0;
-        
-        // 历史记录是按时间倒序的 (最新在最前面)
+        // 统计逻辑
         let records = data.predict_records || [];
+        let totalWin = 0, totalLose = 0, streakWin = 0, streakLose = 0;
+        let currentStreakType = null; 
         
-        // 先统计总对总错
         records.forEach(r => {
             if (r.status === 'settled') {
                 if (r.is_win) totalWin++;
@@ -413,33 +387,32 @@ HTML_CONTENT = """
             }
         });
 
-        // 统计连对连错 (从最新一期开始算)
-        for (let i = 0; i < records.length; i++) {
+        // 【核心修复】从数组最后面（最新的一期）开始往前倒推计算连对连错
+        for (let i = records.length - 1; i >= 0; i--) {
             let r = records[i];
-            if (r.status !== 'settled') continue; // 跳过未结算的
+            if (r.status !== 'settled') continue; 
             
             if (currentStreakType === null) {
                 currentStreakType = r.is_win ? 'win' : 'lose';
-                currentStreakCount = 1;
+                if (currentStreakType === 'win') streakWin++;
+                else streakLose++;
             } else {
-                if (r.is_win && currentStreakType === 'win') currentStreakCount++;
-                else if (!r.is_win && currentStreakType === 'lose') currentStreakCount++;
-                else break; // 断了就停止
+                if (r.is_win && currentStreakType === 'win') streakWin++;
+                else if (!r.is_win && currentStreakType === 'lose') streakLose++;
+                else break; 
             }
         }
-        
-        streakWin = currentStreakType === 'win' ? currentStreakCount : 0;
-        streakLose = currentStreakType === 'lose' ? currentStreakCount : 0;
 
         document.getElementById('stat-total-win').innerText = totalWin;
         document.getElementById('stat-total-lose').innerText = totalLose;
         document.getElementById('stat-streak-win').innerText = streakWin;
         document.getElementById('stat-streak-lose').innerText = streakLose;
 
-        // 渲染记录列表
+        // 渲染列表 (倒序展示，最新的在最上面)
         let recordHtml = '';
-        if(records.length > 0) {
-            records.forEach(r => {
+        let reversedRecords = [...records].reverse(); // 倒序显示
+        if(reversedRecords.length > 0) {
+            reversedRecords.forEach(r => {
                 let statusTag = r.status === 'pending' ? '<span class="pending-tag">等待开奖</span>' : (r.is_win ? '<span class="win-tag">🀄 中奖</span>' : '<span class="lose-tag">未中</span>');
                 let actualText = r.actual ? `开: ${r.actual}` : '开: --';
                 let killColor = r.is_win ? 'color:var(--text-muted)' : 'color:var(--red)';
@@ -448,12 +421,10 @@ HTML_CONTENT = """
         } else { recordHtml = '<div class="loading">暂无记录</div>'; }
         document.getElementById('record-list').innerHTML = recordHtml;
 
-        // 渲染开奖列表
         let drawsHtml = '';
         data.draws.forEach(d => { drawsHtml += `<div class="lottery-item"><div class="lottery-issue">${d.issue}<br>${d.time}</div><div class="lottery-raw">${d.raw}</div><div class="lottery-type type-${d.type}">${d.type}</div></div>`; });
         document.getElementById('draws-list').innerHTML = drawsHtml;
 
-        // 更新倒计时
         globalNextTs = data.next_ts;
         globalTimeOffset = data.server_time - Math.floor(Date.now() / 1000);
     }
@@ -506,7 +477,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(HTML_CONTENT.encode('utf-8'))
             return
 
-        # 安全验证
         if not self.verify_security():
             self.send_response(403)
             self.end_headers()
@@ -547,7 +517,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 if game_type not in history: history[game_type] = []
                 game_history = history[game_type]
                 
-                # 【核心修复】回填补全
+                # 回填补全
                 if len(game_history) < 5:
                     game_history = []
                     for i in range(len(draws)-1, 0, -1):
@@ -577,7 +547,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 if not game_history or game_history[-1]["issue"] != latest_issue:
                     game_history.append({"issue": latest_issue, "kill": prediction["kill"], "push": prediction["push"], "actual": None, "is_win": None, "status": "pending"})
                 
-                # 【只保存最近 20 期】
+                # 只保存最近 20 期
                 game_history = game_history[-20:]
                 
                 save_history({game_type: game_history})
