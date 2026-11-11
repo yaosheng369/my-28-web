@@ -6,6 +6,7 @@ import time
 import base64
 import os
 import re
+import hashlib
 from urllib.parse import urlparse, parse_qs
 
 # ================= 配置区 =================
@@ -19,58 +20,175 @@ HISTORY_FILE = "predict_history.json"
 CACHE_EXPIRE_SECONDS = 3
 API_CACHE = {} 
 
-# ================= 300套独立算法矩阵 (明文) =================
-# 我们生成了300个不同的参数组合，保证每一期的算法都不同，绝不固定死杀。
-ALGORITHMS = []
-for i in range(1, 301):
-    ALGORITHMS.append({
-        "id": i,
-        "type": i % 5,  # 0:冷热 1:连号 2:均值 3:期号模 4:混合
-        "window": (i % 15) + 5, # 窗口 5-19
-        "mod_val": (i % 4) + 2   # 模数 2-5
-    })
+# ================= 300套独立算法矩阵 (明文写死) =================
+# 1-60: 冷热频率类 (窗口 3-15)
+# 61-120: 连号与趋势类
+# 121-180: 均值回归与EMA
+# 181-240: 斐波那契与周期
+# 241-300: 哈希与高阶混合
+ALGORITHMS = [
+    {"id": 1, "method": "freq", "window": 3, "mode": "hot"}, {"id": 2, "method": "freq", "window": 4, "mode": "cold"}, {"id": 3, "method": "freq", "window": 5, "mode": "hot"}, 
+    {"id": 4, "method": "freq", "window": 6, "mode": "cold"}, {"id": 5, "method": "freq", "window": 7, "mode": "hot"}, {"id": 6, "method": "freq", "window": 8, "mode": "cold"},
+    {"id": 7, "method": "freq", "window": 9, "mode": "hot"}, {"id": 8, "method": "freq", "window": 10, "mode": "cold"}, {"id": 9, "method": "freq", "window": 11, "mode": "hot"},
+    {"id": 10, "method": "freq", "window": 12, "mode": "cold"}, {"id": 11, "method": "freq", "window": 13, "mode": "hot"}, {"id": 12, "method": "freq", "window": 14, "mode": "cold"},
+    {"id": 13, "method": "freq", "window": 15, "mode": "hot"}, {"id": 14, "method": "freq", "window": 3, "mode": "cold"}, {"id": 15, "method": "freq", "window": 4, "mode": "hot"},
+    {"id": 16, "method": "freq", "window": 5, "mode": "cold"}, {"id": 17, "method": "freq", "window": 6, "mode": "hot"}, {"id": 18, "method": "freq", "window": 7, "mode": "cold"},
+    {"id": 19, "method": "freq", "window": 8, "mode": "hot"}, {"id": 20, "method": "freq", "window": 9, "mode": "cold"}, {"id": 21, "method": "freq", "window": 10, "mode": "hot"},
+    {"id": 22, "method": "freq", "window": 11, "mode": "cold"}, {"id": 23, "method": "freq", "window": 12, "mode": "hot"}, {"id": 24, "method": "freq", "window": 13, "mode": "cold"},
+    {"id": 25, "method": "freq", "window": 14, "mode": "hot"}, {"id": 26, "method": "freq", "window": 15, "mode": "cold"}, {"id": 27, "method": "freq", "window": 3, "mode": "hot"},
+    {"id": 28, "method": "freq", "window": 4, "mode": "cold"}, {"id": 29, "method": "freq", "window": 5, "mode": "hot"}, {"id": 30, "method": "freq", "window": 6, "mode": "cold"},
+    {"id": 31, "method": "freq", "window": 7, "mode": "hot"}, {"id": 32, "method": "freq", "window": 8, "mode": "cold"}, {"id": 33, "method": "freq", "window": 9, "mode": "hot"},
+    {"id": 34, "method": "freq", "window": 10, "mode": "cold"}, {"id": 35, "method": "freq", "window": 11, "mode": "hot"}, {"id": 36, "method": "freq", "window": 12, "mode": "cold"},
+    {"id": 37, "method": "freq", "window": 13, "mode": "hot"}, {"id": 38, "method": "freq", "window": 14, "mode": "cold"}, {"id": 39, "method": "freq", "window": 15, "mode": "hot"},
+    {"id": 40, "method": "freq", "window": 3, "mode": "cold"}, {"id": 41, "method": "freq", "window": 4, "mode": "hot"}, {"id": 42, "method": "freq", "window": 5, "mode": "cold"},
+    {"id": 43, "method": "freq", "window": 6, "mode": "hot"}, {"id": 44, "method": "freq", "window": 7, "mode": "cold"}, {"id": 45, "method": "freq", "window": 8, "mode": "hot"},
+    {"id": 46, "method": "freq", "window": 9, "mode": "cold"}, {"id": 47, "method": "freq", "window": 10, "mode": "hot"}, {"id": 48, "method": "freq", "window": 11, "mode": "cold"},
+    {"id": 49, "method": "freq", "window": 12, "mode": "hot"}, {"id": 50, "method": "freq", "window": 13, "mode": "cold"}, {"id": 51, "method": "freq", "window": 14, "mode": "hot"},
+    {"id": 52, "method": "freq", "window": 15, "mode": "cold"}, {"id": 53, "method": "freq", "window": 3, "mode": "hot"}, {"id": 54, "method": "freq", "window": 4, "mode": "cold"},
+    {"id": 55, "method": "freq", "window": 5, "mode": "hot"}, {"id": 56, "method": "freq", "window": 6, "mode": "cold"}, {"id": 57, "method": "freq", "window": 7, "mode": "hot"},
+    {"id": 58, "method": "freq", "window": 8, "mode": "cold"}, {"id": 59, "method": "freq", "window": 9, "mode": "hot"}, {"id": 60, "method": "freq", "window": 10, "mode": "cold"},
+
+    {"id": 61, "method": "streak", "window": 3, "mode": "follow"}, {"id": 62, "method": "streak", "window": 4, "mode": "break"}, {"id": 63, "method": "streak", "window": 5, "mode": "follow"},
+    {"id": 64, "method": "streak", "window": 6, "mode": "break"}, {"id": 65, "method": "streak", "window": 7, "mode": "follow"}, {"id": 66, "method": "streak", "window": 8, "mode": "break"},
+    {"id": 67, "method": "streak", "window": 9, "mode": "follow"}, {"id": 68, "method": "streak", "window": 10, "mode": "break"}, {"id": 69, "method": "streak", "window": 11, "mode": "follow"},
+    {"id": 70, "method": "streak", "window": 12, "mode": "break"}, {"id": 71, "method": "streak", "window": 13, "mode": "follow"}, {"id": 72, "method": "streak", "window": 14, "mode": "break"},
+    {"id": 73, "method": "streak", "window": 15, "mode": "follow"}, {"id": 74, "method": "streak", "window": 3, "mode": "break"}, {"id": 75, "method": "streak", "window": 4, "mode": "follow"},
+    {"id": 76, "method": "streak", "window": 5, "mode": "break"}, {"id": 77, "method": "streak", "window": 6, "mode": "follow"}, {"id": 78, "method": "streak", "window": 7, "mode": "break"},
+    {"id": 79, "method": "streak", "window": 8, "mode": "follow"}, {"id": 80, "method": "streak", "window": 9, "mode": "break"}, {"id": 81, "method": "streak", "window": 10, "mode": "follow"},
+    {"id": 82, "method": "streak", "window": 11, "mode": "break"}, {"id": 83, "method": "streak", "window": 12, "mode": "follow"}, {"id": 84, "method": "streak", "window": 13, "mode": "break"},
+    {"id": 85, "method": "streak", "window": 14, "mode": "follow"}, {"id": 86, "method": "streak", "window": 15, "mode": "break"}, {"id": 87, "method": "streak", "window": 3, "mode": "follow"},
+    {"id": 88, "method": "streak", "window": 4, "mode": "break"}, {"id": 89, "method": "streak", "window": 5, "mode": "follow"}, {"id": 90, "method": "streak", "window": 6, "mode": "break"},
+    {"id": 91, "method": "streak", "window": 7, "mode": "follow"}, {"id": 92, "method": "streak", "window": 8, "mode": "break"}, {"id": 93, "method": "streak", "window": 9, "mode": "follow"},
+    {"id": 94, "method": "streak", "window": 10, "mode": "break"}, {"id": 95, "method": "streak", "window": 11, "mode": "follow"}, {"id": 96, "method": "streak", "window": 12, "mode": "break"},
+    {"id": 97, "method": "streak", "window": 13, "mode": "follow"}, {"id": 98, "method": "streak", "window": 14, "mode": "break"}, {"id": 99, "method": "streak", "window": 15, "mode": "follow"},
+    {"id": 100, "method": "streak", "window": 3, "mode": "break"}, {"id": 101, "method": "streak", "window": 4, "mode": "follow"}, {"id": 102, "method": "streak", "window": 5, "mode": "break"},
+    {"id": 103, "method": "streak", "window": 6, "mode": "follow"}, {"id": 104, "method": "streak", "window": 7, "mode": "break"}, {"id": 105, "method": "streak", "window": 8, "mode": "follow"},
+    {"id": 106, "method": "streak", "window": 9, "mode": "break"}, {"id": 107, "method": "streak", "window": 10, "mode": "follow"}, {"id": 108, "method": "streak", "window": 11, "mode": "break"},
+    {"id": 109, "method": "streak", "window": 12, "mode": "follow"}, {"id": 110, "method": "streak", "window": 13, "mode": "break"}, {"id": 111, "method": "streak", "window": 14, "mode": "follow"},
+    {"id": 112, "method": "streak", "window": 15, "mode": "break"}, {"id": 113, "method": "streak", "window": 3, "mode": "follow"}, {"id": 114, "method": "streak", "window": 4, "mode": "break"},
+    {"id": 115, "method": "streak", "window": 5, "mode": "follow"}, {"id": 116, "method": "streak", "window": 6, "mode": "break"}, {"id": 117, "method": "streak", "window": 7, "mode": "follow"},
+    {"id": 118, "method": "streak", "window": 8, "mode": "break"}, {"id": 119, "method": "streak", "window": 9, "mode": "follow"}, {"id": 120, "method": "streak", "window": 10, "mode": "break"},
+
+    {"id": 121, "method": "mean", "window": 5, "mode": "big"}, {"id": 122, "method": "mean", "window": 6, "mode": "small"}, {"id": 123, "method": "mean", "window": 7, "mode": "big"},
+    {"id": 124, "method": "mean", "window": 8, "mode": "small"}, {"id": 125, "method": "mean", "window": 9, "mode": "big"}, {"id": 126, "method": "mean", "window": 10, "mode": "small"},
+    {"id": 127, "method": "mean", "window": 11, "mode": "big"}, {"id": 128, "method": "mean", "window": 12, "mode": "small"}, {"id": 129, "method": "mean", "window": 13, "mode": "big"},
+    {"id": 130, "method": "mean", "window": 14, "mode": "small"}, {"id": 131, "method": "mean", "window": 15, "mode": "big"}, {"id": 132, "method": "mean", "window": 16, "mode": "small"},
+    {"id": 133, "method": "mean", "window": 17, "mode": "big"}, {"id": 134, "method": "mean", "window": 18, "mode": "small"}, {"id": 135, "method": "mean", "window": 19, "mode": "big"},
+    {"id": 136, "method": "mean", "window": 20, "mode": "small"}, {"id": 137, "method": "mean", "window": 5, "mode": "small"}, {"id": 138, "method": "mean", "window": 6, "mode": "big"},
+    {"id": 139, "method": "mean", "window": 7, "mode": "small"}, {"id": 140, "method": "mean", "window": 8, "mode": "big"}, {"id": 141, "method": "mean", "window": 9, "mode": "small"},
+    {"id": 142, "method": "mean", "window": 10, "mode": "big"}, {"id": 143, "method": "mean", "window": 11, "mode": "small"}, {"id": 144, "method": "mean", "window": 12, "mode": "big"},
+    {"id": 145, "method": "mean", "window": 13, "mode": "small"}, {"id": 146, "method": "mean", "window": 14, "mode": "big"}, {"id": 147, "method": "mean", "window": 15, "mode": "small"},
+    {"id": 148, "method": "mean", "window": 16, "mode": "big"}, {"id": 149, "method": "mean", "window": 17, "mode": "small"}, {"id": 150, "method": "mean", "window": 18, "mode": "big"},
+    {"id": 151, "method": "mean", "window": 19, "mode": "small"}, {"id": 152, "method": "mean", "window": 20, "mode": "big"}, {"id": 153, "method": "mean", "window": 5, "mode": "big"},
+    {"id": 154, "method": "mean", "window": 6, "mode": "small"}, {"id": 155, "method": "mean", "window": 7, "mode": "big"}, {"id": 156, "method": "mean", "window": 8, "mode": "small"},
+    {"id": 157, "method": "mean", "window": 9, "mode": "big"}, {"id": 158, "method": "mean", "window": 10, "mode": "small"}, {"id": 159, "method": "mean", "window": 11, "mode": "big"},
+    {"id": 160, "method": "mean", "window": 12, "mode": "small"}, {"id": 161, "method": "mean", "window": 13, "mode": "big"}, {"id": 162, "method": "mean", "window": 14, "mode": "small"},
+    {"id": 163, "method": "mean", "window": 15, "mode": "big"}, {"id": 164, "method": "mean", "window": 16, "mode": "small"}, {"id": 165, "method": "mean", "window": 17, "mode": "big"},
+    {"id": 166, "method": "mean", "window": 18, "mode": "small"}, {"id": 167, "method": "mean", "window": 19, "mode": "big"}, {"id": 168, "method": "mean", "window": 20, "mode": "small"},
+    {"id": 169, "method": "mean", "window": 5, "mode": "big"}, {"id": 170, "method": "mean", "window": 6, "mode": "small"}, {"id": 171, "method": "mean", "window": 7, "mode": "big"},
+    {"id": 172, "method": "mean", "window": 8, "mode": "small"}, {"id": 173, "method": "mean", "window": 9, "mode": "big"}, {"id": 174, "method": "mean", "window": 10, "mode": "small"},
+    {"id": 175, "method": "mean", "window": 11, "mode": "big"}, {"id": 176, "method": "mean", "window": 12, "mode": "small"}, {"id": 177, "method": "mean", "window": 13, "mode": "big"},
+    {"id": 178, "method": "mean", "window": 14, "mode": "small"}, {"id": 179, "method": "mean", "window": 15, "mode": "big"}, {"id": 180, "method": "mean", "window": 16, "mode": "small"},
+
+    {"id": 181, "method": "ema", "window": 5, "alpha": 0.1}, {"id": 182, "method": "ema", "window": 6, "alpha": 0.2}, {"id": 183, "method": "ema", "window": 7, "alpha": 0.3},
+    {"id": 184, "method": "ema", "window": 8, "alpha": 0.4}, {"id": 185, "method": "ema", "window": 9, "alpha": 0.5}, {"id": 186, "method": "ema", "window": 10, "alpha": 0.6},
+    {"id": 187, "method": "ema", "window": 11, "alpha": 0.7}, {"id": 188, "method": "ema", "window": 12, "alpha": 0.8}, {"id": 189, "method": "ema", "window": 13, "alpha": 0.9},
+    {"id": 190, "method": "ema", "window": 14, "alpha": 0.15}, {"id": 191, "method": "ema", "window": 15, "alpha": 0.25}, {"id": 192, "method": "ema", "window": 16, "alpha": 0.35},
+    {"id": 193, "method": "ema", "window": 17, "alpha": 0.45}, {"id": 194, "method": "ema", "window": 18, "alpha": 0.55}, {"id": 195, "method": "ema", "window": 19, "alpha": 0.65},
+    {"id": 196, "method": "ema", "window": 20, "alpha": 0.75}, {"id": 197, "method": "ema", "window": 5, "alpha": 0.85}, {"id": 198, "method": "ema", "window": 6, "alpha": 0.95},
+    {"id": 199, "method": "ema", "window": 7, "alpha": 0.12}, {"id": 200, "method": "ema", "window": 8, "alpha": 0.22}, {"id": 201, "method": "ema", "window": 9, "alpha": 0.32},
+    {"id": 202, "method": "ema", "window": 10, "alpha": 0.42}, {"id": 203, "method": "ema", "window": 11, "alpha": 0.52}, {"id": 204, "method": "ema", "window": 12, "alpha": 0.62},
+    {"id": 205, "method": "ema", "window": 13, "alpha": 0.72}, {"id": 206, "method": "ema", "window": 14, "alpha": 0.82}, {"id": 207, "method": "ema", "window": 15, "alpha": 0.92},
+    {"id": 208, "method": "ema", "window": 16, "alpha": 0.18}, {"id": 209, "method": "ema", "window": 17, "alpha": 0.28}, {"id": 210, "method": "ema", "window": 18, "alpha": 0.38},
+    {"id": 211, "method": "ema", "window": 19, "alpha": 0.48}, {"id": 212, "method": "ema", "window": 20, "alpha": 0.58}, {"id": 213, "method": "ema", "window": 5, "alpha": 0.68},
+    {"id": 214, "method": "ema", "window": 6, "alpha": 0.78}, {"id": 215, "method": "ema", "window": 7, "alpha": 0.88}, {"id": 216, "method": "ema", "window": 8, "alpha": 0.98},
+    {"id": 217, "method": "ema", "window": 9, "alpha": 0.11}, {"id": 218, "method": "ema", "window": 10, "alpha": 0.21}, {"id": 219, "method": "ema", "window": 11, "alpha": 0.31},
+    {"id": 220, "method": "ema", "window": 12, "alpha": 0.41}, {"id": 221, "method": "ema", "window": 13, "alpha": 0.51}, {"id": 222, "method": "ema", "window": 14, "alpha": 0.61},
+    {"id": 223, "method": "ema", "window": 15, "alpha": 0.71}, {"id": 224, "method": "ema", "window": 16, "alpha": 0.81}, {"id": 225, "method": "ema", "window": 17, "alpha": 0.91},
+    {"id": 226, "method": "ema", "window": 18, "alpha": 0.14}, {"id": 227, "method": "ema", "window": 19, "alpha": 0.24}, {"id": 228, "method": "ema", "window": 20, "alpha": 0.34},
+    {"id": 229, "method": "ema", "window": 5, "alpha": 0.44}, {"id": 230, "method": "ema", "window": 6, "alpha": 0.54}, {"id": 231, "method": "ema", "window": 7, "alpha": 0.64},
+    {"id": 232, "method": "ema", "window": 8, "alpha": 0.74}, {"id": 233, "method": "ema", "window": 9, "alpha": 0.84}, {"id": 234, "method": "ema", "window": 10, "alpha": 0.94},
+    {"id": 235, "method": "ema", "window": 11, "alpha": 0.16}, {"id": 236, "method": "ema", "window": 12, "alpha": 0.26}, {"id": 237, "method": "ema", "window": 13, "alpha": 0.36},
+    {"id": 238, "method": "ema", "window": 14, "alpha": 0.46}, {"id": 239, "method": "ema", "window": 15, "alpha": 0.56}, {"id": 240, "method": "ema", "window": 16, "alpha": 0.66},
+
+    {"id": 241, "method": "mod", "mod_val": 3}, {"id": 242, "method": "mod", "mod_val": 4}, {"id": 243, "method": "mod", "mod_val": 5}, {"id": 244, "method": "mod", "mod_val": 6}, {"id": 245, "method": "mod", "mod_val": 7},
+    {"id": 246, "method": "mod", "mod_val": 8}, {"id": 247, "method": "mod", "mod_val": 9}, {"id": 248, "method": "mod", "mod_val": 3}, {"id": 249, "method": "mod", "mod_val": 4}, {"id": 250, "method": "mod", "mod_val": 5},
+    {"id": 251, "method": "mod", "mod_val": 6}, {"id": 252, "method": "mod", "mod_val": 7}, {"id": 253, "method": "mod", "mod_val": 8}, {"id": 254, "method": "mod", "mod_val": 9}, {"id": 255, "method": "mod", "mod_val": 3},
+    {"id": 256, "method": "mod", "mod_val": 4}, {"id": 257, "method": "mod", "mod_val": 5}, {"id": 258, "method": "mod", "mod_val": 6}, {"id": 259, "method": "mod", "mod_val": 7}, {"id": 260, "method": "mod", "mod_val": 8},
+    {"id": 261, "method": "mod", "mod_val": 9}, {"id": 262, "method": "mod", "mod_val": 3}, {"id": 263, "method": "mod", "mod_val": 4}, {"id": 264, "method": "mod", "mod_val": 5}, {"id": 265, "method": "mod", "mod_val": 6},
+    {"id": 266, "method": "mod", "mod_val": 7}, {"id": 267, "method": "mod", "mod_val": 8}, {"id": 268, "method": "mod", "mod_val": 9}, {"id": 269, "method": "mod", "mod_val": 3}, {"id": 270, "method": "mod", "mod_val": 4},
+    {"id": 271, "method": "mod", "mod_val": 5}, {"id": 272, "method": "mod", "mod_val": 6}, {"id": 273, "method": "mod", "mod_val": 7}, {"id": 274, "method": "mod", "mod_val": 8}, {"id": 275, "method": "mod", "mod_val": 9},
+    {"id": 276, "method": "mod", "mod_val": 3}, {"id": 277, "method": "mod", "mod_val": 4}, {"id": 278, "method": "mod", "mod_val": 5}, {"id": 279, "method": "mod", "mod_val": 6}, {"id": 280, "method": "mod", "mod_val": 7},
+    {"id": 281, "method": "mod", "mod_val": 8}, {"id": 282, "method": "mod", "mod_val": 9}, {"id": 283, "method": "mod", "mod_val": 3}, {"id": 284, "method": "mod", "mod_val": 4}, {"id": 285, "method": "mod", "mod_val": 5},
+    {"id": 286, "method": "mod", "mod_val": 6}, {"id": 287, "method": "mod", "mod_val": 7}, {"id": 288, "method": "mod", "mod_val": 8}, {"id": 289, "method": "mod", "mod_val": 9}, {"id": 290, "method": "mod", "mod_val": 3},
+    {"id": 291, "method": "mod", "mod_val": 4}, {"id": 292, "method": "mod", "mod_val": 5}, {"id": 293, "method": "mod", "mod_val": 6}, {"id": 294, "method": "mod", "mod_val": 7}, {"id": 295, "method": "mod", "mod_val": 8},
+    {"id": 296, "method": "mod", "mod_val": 9}, {"id": 297, "method": "mod", "mod_val": 3}, {"id": 298, "method": "mod", "mod_val": 4}, {"id": 299, "method": "mod", "mod_val": 5}, {"id": 300, "method": "mod", "mod_val": 6}
+]
+
+COMBOS = ["大单", "大双", "小单", "小双"]
 
 def dynamic_predict(draws, issue_str):
-    """核心：根据期号动态调用 300 套算法中的一套"""
-    # 提取期号尾数作为算法索引 (保证每一期算法不同)
+    """核心：根据期号动态调用 300 套算法中的一套，绝对互不干扰"""
     match = re.search(r'(\d+)$', str(issue_str))
-    if match:
-        algo_index = int(match.group(1)) % 300
-    else:
-        algo_index = int(time.time()) % 300
-        
-    algo = ALGORITHMS[algo_index]
-    combos = ["大单", "大双", "小单", "小双"]
-    recent = draws[:algo["window"]]
-    counts = {c: 0 for c in combos}
-    for d in recent: counts[d['type']] += 1
+    issue_num = int(match.group(1)) if match else 0
     
-    # 执行具体算法
-    if algo["type"] == 0: # 冷热
-        kill = max(counts, key=counts.get) if algo["id"] % 2 == 0 else min(counts, key=counts.get)
-    elif algo["type"] == 1: # 连号
+    # 利用期号哈希选取算法，保证每期算法不同
+    algo_index = issue_num % 300
+    algo = ALGORITHMS[algo_index]
+    
+    if not draws:
+        return {"kill": "大单", "push": ["大双", "小单", "小双"]}
+
+    recent = draws[:algo.get("window", 5)]
+    counts = {c: 0 for c in COMBOS}
+    for d in recent: 
+        if d.get('type') in counts:
+            counts[d['type']] += 1
+        
+    kill = ""
+    method = algo["method"]
+    
+    if method == "freq": # 冷热
+        kill = max(counts, key=counts.get) if algo["mode"] == "hot" else min(counts, key=counts.get)
+    elif method == "streak": # 连号
         last = recent[0]['type']
         streak = sum(1 for d in recent if d['type'] == last)
-        kill = last if streak >= 2 else next(c for c in combos if c != last)
-    elif algo["type"] == 2: # 均值回归
+        if algo["mode"] == "follow":
+            kill = last if streak >= 2 else next(c for c in COMBOS if c != last)
+        else:
+            kill = next(c for c in COMBOS if c != last) if streak >= 2 else last
+    elif method == "mean": # 均值回归
         da = sum(1 for d in recent if '大' in d['type'])
         dan = sum(1 for d in recent if '单' in d['type'])
-        kill = ('大' if da > len(recent)/2 else '小') + ('单' if dan > len(recent)/2 else '双')
-    elif algo["type"] == 3: # 期号模
-        kill = combos[int(match.group(1)) % algo["mod_val"]] if match else "大单"
-    else: # 混合随机(基于时间和期号)
-        seed = (int(time.time()) + int(match.group(1)) if match else 0)
-        kill = combos[seed % 4]
+        target_big = '大' if da > len(recent)/2 else '小'
+        target_dan = '单' if dan > len(recent)/2 else '双'
+        if algo["mode"] == "big": target_big = '小' if target_big == '大' else '大'
+        if algo["mode"] == "small": target_dan = '双' if target_dan == '单' else '单'
+        kill = target_big + target_dan
+    elif method == "ema": # 指数移动平均
+        alpha = algo.get("alpha", 0.5)
+        ema_big = 0
+        for i, d in enumerate(recent):
+            ema_big = (1 if '大' in d['type'] else 0) * alpha + ema_big * (1 - alpha)
+        kill = ('小' if ema_big > 0.5 else '大') + ('单' if issue_num % 2 == 0 else '双')
+    elif method == "mod": # 期号模
+        mod_val = algo.get("mod_val", 4)
+        kill = COMBOS[issue_num % mod_val]
         
-    if kill not in combos: kill = combos[0]
-    return {"kill": kill, "push": [c for c in combos if c != kill]}
+    if kill not in COMBOS: 
+        # 极端容错 + 时间散列，防止固定
+        seed = str(issue_num) + str(int(time.time() // 60))
+        h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+        kill = COMBOS[h % 4]
 
-def get_prev_issue(issue_str, offset=1):
+    return {"kill": kill, "push": [c for c in COMBOS if c != kill]}
+
+def get_next_issue(issue_str, offset=1):
     match = re.search(r'(\d+)$', str(issue_str))
     if match:
         num_str = match.group(1)
         prefix = str(issue_str)[:-len(num_str)]
-        return prefix + str(int(num_str) - offset).zfill(len(num_str))
+        return prefix + str(int(num_str) + offset).zfill(len(num_str))
     return "未知"
 
 def load_history():
@@ -84,7 +202,7 @@ def save_history(history):
     with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
-# ================= 前端 HTML =================
+# ================= 前端 HTML (保持原样) =================
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -371,20 +489,24 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 if not draws: raise Exception("API 数据为空")
                 
                 latest_issue = draws[0].get('issue')
-                next_issue = get_prev_issue(latest_issue, -1) # 反推下一期
+                next_issue = get_next_issue(latest_issue, 1) 
                 
-                # 核心生成连贯历史记录
                 history = load_history()
                 if game_type not in history: history[game_type] = []
                 game_history = history[game_type]
                 
-                # 如果记录不够 20 期，基于最新数据，连贯地倒推生成
-                if len(game_history) < 20:
-                    game_history = []
-                    for i in range(len(draws)-1, max(-1, len(draws)-21), -1):
-                        past_draw = draws[i]
-                        past_issue = past_draw['issue']
-                        past_pred = dynamic_predict(draws[i:], past_issue)
+                # ================= 修复断层核心逻辑 =================
+                # 以 API 返回的实际开奖数据为基准，自动回溯补齐缺失的期号
+                existing_issues = {r['issue'] for r in game_history}
+                
+                # 倒序遍历最近30期，补全历史记录中缺失的期号
+                for i in range(len(draws) - 1, -1, -1):
+                    past_draw = draws[i]
+                    past_issue = past_draw['issue']
+                    if past_issue not in existing_issues:
+                        # 缺失该期记录，利用当时的开奖数据生成预测
+                        historical_context = draws[i:]
+                        past_pred = dynamic_predict(historical_context, past_issue)
                         game_history.append({
                             "issue": past_issue,
                             "kill": past_pred['kill'],
@@ -393,20 +515,40 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                             "is_win": (past_draw['type'] != past_pred['kill']),
                             "status": "settled"
                         })
-                else:
-                    # 结算上一期
-                    last_record = game_history[-1]
-                    if last_record["status"] == "pending":
-                        last_record["actual"] = draws[0]['type']
-                        last_record["is_win"] = (draws[0]['type'] != last_record["kill"])
-                        last_record["status"] = "settled"
-                    
-                    # 生成新一期
-                    if game_history[-1]["issue"] != latest_issue:
-                        pred = dynamic_predict(draws, next_issue)
-                        game_history.append({"issue": next_issue, "kill": pred["kill"], "push": pred["push"], "actual": None, "is_win": None, "status": "pending"})
+                        existing_issues.add(past_issue)
                 
+                # 按照期号尾数进行排序，防止顺序错乱
+                def sort_key(x):
+                    m = re.search(r'(\d+)$', str(x['issue']))
+                    return int(m.group(1)) if m else 0
+                game_history.sort(key=sort_key)
+                
+                # 只保留最近20期记录
                 game_history = game_history[-20:]
+                
+                # 结算待开奖状态
+                for record in game_history:
+                    if record["status"] == "pending":
+                        # 检查是否已开奖
+                        for d in draws:
+                            if d['issue'] == record['issue']:
+                                record["actual"] = d['type']
+                                record["is_win"] = (d['type'] != record["kill"])
+                                record["status"] = "settled"
+                                break
+                
+                # 最后追加最新一期的预测 (目标下期)
+                if not any(r['issue'] == next_issue for r in game_history):
+                    pred = dynamic_predict(draws, next_issue)
+                    game_history.append({
+                        "issue": next_issue, 
+                        "kill": pred["kill"], 
+                        "push": pred["push"], 
+                        "actual": None, 
+                        "is_win": None, 
+                        "status": "pending"
+                    })
+                
                 save_history({game_type: game_history})
                 
                 # 生成当前这期的预测
